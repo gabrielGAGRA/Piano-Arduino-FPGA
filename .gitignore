@@ -1,2 +1,4 @@
 local/
 *.vpp
+
+*/__pycache__

@@ -22,10 +22,6 @@ Este diretório contém o firmware em C/C++ (Arduino/ESP-IDF) para o **ESP32-S3*
    ```bash
    python esp32_midi_synth/sf2_to_header.py caminho/para/seu_piano.sf2
    ```
-   Caso queira regerar o SoundFont sintético mínimo de teste:
-   ```bash
-   python esp32_midi_synth/sf2_to_header.py --generate-minimal
-   ```
 
 ---
 

@@ -1781,7 +1781,7 @@ class VerilogLinter:
 
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-      Descrição=(
+      description=(
           "Strict Verilog-2001 & Cyclone V RTL Linter (Google Style Guide"
           " Aligned)"
       ),

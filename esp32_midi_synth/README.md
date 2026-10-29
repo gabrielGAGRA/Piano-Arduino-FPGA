@@ -7,34 +7,46 @@ Este diretório contém o firmware em C/C++ (Arduino/ESP-IDF) para o **ESP32-S3*
 ## 1. Estrutura de Arquivos
 
 - `esp32_midi_synth.ino`: Sketch principal do ESP32-S3 com parser MIDI 1.0 auto-sincronizado pelo MSB, fila FreeRTOS thread-safe, renderização `TinySoundFont` em blocos de 64 frames (~1,45 ms) e saída DMA I²S.
-- `sf2_to_header.py`: Utilitário em Python para converter qualquer arquivo SoundFont (`.sf2`) para o header C `piano_sf2.h`.
-- `piano_sf2.h`: Header C contendo o SoundFont em array `const unsigned char g_piano_sf2[]`. Já vem pré-gerado com um SoundFont funcional mínimo para compilação imediata.
+- `tsf.h`: Single-header TinySoundFont customizado com suporte a **Acesso Direto à Flash (Opção 2)**.
+- `Keyzone_Steinway_Grand_Piano_ULTRA_LITE.sf2`: SoundFont de altíssima qualidade do Steinway Grand Piano (14.36 MB).
+- `piano_sf2.h`: Header C contendo o array compilado `const unsigned char g_piano_sf2[]` gerado a partir do Steinway Grand Piano.
+- `partitions.csv`: Tabela de partição para módulos ESP32-S3 com 16 MB de Flash, alocando ~15.8 MB para o executável com SoundFont embutido.
+- `sf2_to_header.py`: Utilitário em Python para converter qualquer outro arquivo SoundFont (`.sf2`) para `piano_sf2.h`.
 
 ---
 
-## 2. Como Preparar o Ambiente e o SoundFont
+## 2. Acesso Direto à Flash (Zero RAM de Amostras)
 
-1. **Obter o `tsf.h` (TinySoundFont):**
-   Baixe o arquivo single-header `tsf.h` oficial do repositório [TinySoundFont](https://github.com/schellingb/TinySoundFont/blob/master/tsf.h) e coloque-o dentro desta pasta (`esp32_midi_synth/tsf.h`).
+Por padrão, a biblioteca `TinySoundFont` aloca em heap o dobro do tamanho das amostras PCM em ponto flutuante de 32 bits (exigiria ~28.8 MB de RAM para um banco de 14.36 MB, excedendo os 8 MB de PSRAM).
 
-2. **Converter um SoundFont de Piano (`.sf2`) para `piano_sf2.h`:**
-   Para usar amostras reais de piano acústico (recomendado arquivo `.sf2` compacto de 500 KB a 4 MB para caber na Flash ou PSRAM do ESP32-S3):
-   ```bash
-   python esp32_midi_synth/sf2_to_header.py caminho/para/seu_piano.sf2
-   ```
+O arquivo `tsf.h` incluído neste diretório foi otimizado com a **Opção 2**:
+- Lê as amostras diretamente do ponteiro em Flash mapeado na MMU (`const short *`), dispensando a duplicação na RAM.
+- O consumo de heap pelo SoundFont cai de **28.87 MB** para apenas **157 KB** (99.45% de economia).
+- A normalização e interpolação linear ocorrem em tempo de execução sem degradação audível.
 
 ---
 
-## 3. Ligações de Hardware (Pinagem Padrão)
+## 3. Configurações na Arduino IDE / PlatformIO
 
-### 3.1. FPGA DE0-CV → ESP32-S3 (UART 8N1 @ 115200 bps, 3.3V LVTTL)
+Para gravar no **ESP32-S3 DevKitC-1 (N16R8)**:
+- **Placa:** `ESP32S3 Dev Module`
+- **Flash Size:** `16MB (128Mb)`
+- **Partition Scheme:** Utilize o arquivo `partitions.csv` incluído na pasta (ou selecione qualquer esquema com pelo menos 15 MB de partição de aplicativo, sem OTA).
+- **PSRAM:** `OPI PSRAM` (ou habilitado).
+- **Upload Speed:** `921600` (ou padrão).
+
+---
+
+## 4. Ligações de Hardware (Pinagem Padrão)
+
+### 4.1. FPGA DE0-CV → ESP32-S3 (UART 8N1 @ 115200 bps, 3.3V LVTTL)
 
 | Sinal no FPGA (`piano_top.v`) | Pino no ESP32-S3 | Descrição |
 |---|---|---|
 | `saida_serial` (GPIO 3.3V) | `GPIO 18` (`UART_RX_PIN`) | Recepção serial MIDI (pacotes de 24 bits) |
 | `GND` | `GND` | Referência comum obrigatória |
 
-### 3.2. ESP32-S3 → Módulo DAC PCM5102A (I²S)
+### 4.2. ESP32-S3 → Módulo DAC PCM5102A (I²S)
 
 | Pino no ESP32-S3 | Pino no PCM5102A | Descrição |
 |---|---|---|
@@ -47,7 +59,7 @@ Este diretório contém o firmware em C/C++ (Arduino/ESP-IDF) para o **ESP32-S3*
 
 ---
 
-## 4. Protocolo MIDI 1.0 Recebido (24 bits = 3 bytes)
+## 5. Protocolo MIDI 1.0 Recebido (24 bits = 3 bytes)
 
 O parser serial sincroniza automaticamente os pacotes de 3 bytes pelo bit 7 (`MSB`):
 

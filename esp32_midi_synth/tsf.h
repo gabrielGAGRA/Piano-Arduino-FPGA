@@ -85,6 +85,9 @@ extern "C"
 
         // Function pointer will be called to skip ahead over 'count' bytes (returns 1 on success, 0 on error)
         int (*skip)(void *data, unsigned int count);
+
+        // Optional direct pointer to buffer in memory (returns pointer and advances position, or returns TSF_NULL if unsupported)
+        const void *(*direct_ptr)(void *data, unsigned int size);
     };
 
     // Generic SoundFont loading method using the stream structure above
@@ -333,6 +336,8 @@ extern "C"
     {
         struct tsf_preset *presets;
         float *fontSamples;
+        const short *fontSamplesShort;
+        int fontSamplesShortAllocated;
         struct tsf_voice *voices;
         struct tsf_channels *channels;
 
@@ -353,7 +358,7 @@ extern "C"
     TSFDEF tsf *tsf_load_filename(const char *filename)
     {
         tsf *res;
-        struct tsf_stream stream = {TSF_NULL, (int (*)(void *, void *, unsigned int))&tsf_stream_stdio_read, (int (*)(void *, unsigned int))&tsf_stream_stdio_skip};
+        struct tsf_stream stream = {TSF_NULL, (int (*)(void *, void *, unsigned int))&tsf_stream_stdio_read, (int (*)(void *, unsigned int))&tsf_stream_stdio_skip, TSF_NULL};
 #if __STDC_WANT_SECURE_LIB__
         FILE *f = TSF_NULL;
         fopen_s(&f, filename, "rb");
@@ -392,9 +397,18 @@ extern "C"
         m->pos += count;
         return 1;
     }
+    static const void *tsf_stream_memory_direct_ptr(struct tsf_stream_memory *m, unsigned int size)
+    {
+        const void *res;
+        if (size > m->total - m->pos)
+            return TSF_NULL;
+        res = (const void *)(m->buffer + m->pos);
+        m->pos += size;
+        return res;
+    }
     TSFDEF tsf *tsf_load_memory(const void *buffer, int size)
     {
-        struct tsf_stream stream = {TSF_NULL, (int (*)(void *, void *, unsigned int))&tsf_stream_memory_read, (int (*)(void *, unsigned int))&tsf_stream_memory_skip};
+        struct tsf_stream stream = {TSF_NULL, (int (*)(void *, void *, unsigned int))&tsf_stream_memory_read, (int (*)(void *, unsigned int))&tsf_stream_memory_skip, (const void *(*)(void *, unsigned int))&tsf_stream_memory_direct_ptr};
         struct tsf_stream_memory f = {0, 0, 0};
         f.buffer = (const char *)buffer;
         f.total = size;
@@ -1313,12 +1327,14 @@ extern "C"
     }
 #endif
 
-    static int tsf_load_samples(void **pRawBuffer, float **pFloatBuffer, unsigned int *pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream *stream)
+    static int tsf_load_samples(void **pRawBuffer, float **pFloatBuffer, const short **pShortBuffer, int *pShortAllocated, unsigned int *pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream *stream)
     {
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
         // With OGG Vorbis support we cannot pre-allocate the memory for tsf_decode_sf3_samples
         tsf_u32 resNum, resMax;
         float *oldres;
+        *pShortBuffer = TSF_NULL;
+        *pShortAllocated = 0;
         *pSmplCount = chunkSmpl->size;
         *pRawBuffer = (void *)TSF_MALLOC(*pSmplCount);
         if (!*pRawBuffer || !stream->read(stream->data, *pRawBuffer, chunkSmpl->size))
@@ -1336,17 +1352,27 @@ extern "C"
         *pSmplCount = resNum;
         return (*pFloatBuffer ? 1 : 0);
 #else
-    // Inline convert the samples from short to float
-    float *res, *out;
-    const short *in;
-    (void)pRawBuffer;
-    *pSmplCount = chunkSmpl->size / (unsigned int)sizeof(short);
-    *pFloatBuffer = (float *)TSF_MALLOC(*pSmplCount * sizeof(float));
-    if (!*pFloatBuffer || !stream->read(stream->data, *pFloatBuffer, chunkSmpl->size))
-        return 0;
-    for (res = *pFloatBuffer, out = res + *pSmplCount, in = (short *)res + *pSmplCount; out != res;)
-        *(--out) = (float)(*(--in) / 32767.0);
-    return 1;
+        (void)pRawBuffer;
+        *pSmplCount = chunkSmpl->size / (unsigned int)sizeof(short);
+        *pFloatBuffer = TSF_NULL;
+        if (stream->direct_ptr)
+        {
+            *pShortBuffer = (const short *)stream->direct_ptr(stream->data, chunkSmpl->size);
+            if (!*pShortBuffer)
+                return 0;
+            *pShortAllocated = 0;
+            return 1;
+        }
+
+        short *shortMem = (short *)TSF_MALLOC(chunkSmpl->size);
+        if (!shortMem || !stream->read(stream->data, shortMem, chunkSmpl->size))
+        {
+            TSF_FREE(shortMem);
+            return 0;
+        }
+        *pShortBuffer = shortMem;
+        *pShortAllocated = 1;
+        return 1;
 #endif
     }
 
@@ -1588,7 +1614,8 @@ extern "C"
     static void tsf_voice_render(tsf *f, struct tsf_voice *v, float *outputBuffer, int numSamples)
     {
         struct tsf_region *region = v->region;
-        float *input = f->fontSamples;
+        float *inputFloat = f->fontSamples;
+        const short *inputShort = f->fontSamplesShort;
         float *outL = outputBuffer;
         float *outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
@@ -1670,7 +1697,10 @@ extern "C"
                     unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float val = inputShort ?
+                        ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
+                        (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
 
                     // Low-pass filter.
                     if (tmpLowpass.active)
@@ -1693,7 +1723,10 @@ extern "C"
                     unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float val = inputShort ?
+                        ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
+                        (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
 
                     // Low-pass filter.
                     if (tmpLowpass.active)
@@ -1715,7 +1748,10 @@ extern "C"
                     unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float val = inputShort ?
+                        ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
+                        (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
 
                     // Low-pass filter.
                     if (tmpLowpass.active)
@@ -1751,6 +1787,8 @@ extern "C"
         struct tsf_hydra hydra;
         void *rawBuffer = TSF_NULL;
         float *floatBuffer = TSF_NULL;
+        const short *shortBuffer = TSF_NULL;
+        int shortAllocated = 0;
         tsf_u32 smplCount = 0;
 
         if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
@@ -1805,9 +1843,9 @@ extern "C"
                          || TSF_FourCCEquals(chunk.id, "smpo")
 #endif
                              ) &&
-                        !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
+                        !rawBuffer && !floatBuffer && !shortBuffer && chunk.size >= sizeof(short))
                     {
-                        if (!tsf_load_samples(&rawBuffer, &floatBuffer, &smplCount, &chunk, stream))
+                        if (!tsf_load_samples(&rawBuffer, &floatBuffer, &shortBuffer, &shortAllocated, &smplCount, &chunk, stream))
                             goto out_of_memory;
                     }
                     else
@@ -1821,7 +1859,7 @@ extern "C"
         {
             // if (e) *e = TSF_INVALID_INCOMPLETE;
         }
-        else if (!rawBuffer && !floatBuffer)
+        else if (!rawBuffer && !floatBuffer && !shortBuffer)
         {
             // if (e) *e = TSF_INVALID_NOSAMPLEDATA;
         }
@@ -1838,7 +1876,10 @@ extern "C"
                 goto out_of_memory;
             res->outSampleRate = 44100.0f;
             res->fontSamples = floatBuffer;
+            res->fontSamplesShort = shortBuffer;
+            res->fontSamplesShortAllocated = shortAllocated;
             floatBuffer = TSF_NULL; // don't free below
+            shortBuffer = TSF_NULL; // don't free below
         }
         if (0)
         {
@@ -1858,6 +1899,7 @@ extern "C"
         TSF_FREE(hydra.shdrs);
         TSF_FREE(rawBuffer);
         TSF_FREE(floatBuffer);
+        if (shortAllocated && shortBuffer) TSF_FREE((void *)shortBuffer);
         return res;
     }
 
@@ -1894,7 +1936,8 @@ extern "C"
             for (; preset != presetEnd; preset++)
                 TSF_FREE(preset->regions);
             TSF_FREE(f->presets);
-            TSF_FREE(f->fontSamples);
+            if (f->fontSamples) TSF_FREE(f->fontSamples);
+            if (f->fontSamplesShort && f->fontSamplesShortAllocated) TSF_FREE((void *)f->fontSamplesShort);
             TSF_FREE(f->refCount);
         }
         TSF_FREE(f->channels);

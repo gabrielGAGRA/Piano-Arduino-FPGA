@@ -1,45 +1,43 @@
+// Descrição: Contador modulo M parametrizavel com saidas de fim e meio periodo.
+// Funcionamento: Contador sincrono sature/wrap de 0 a M-1 que gera pulsos
+// de strobe no meio da contagem e no overflow final, com clear sincrono sclr.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-/*
- * Descricao : contador parametrizavel, modulo m, com parametros 
- *             M (modulo do contador) e N (numero de bits),
- *             sinais para clear assincrono (zera_as) e sincrono (zera_s)
- *             e saidas de fim e meio de contagem
- */
 module contador_m #(
-    parameter M = 2048, 
-    parameter N = 11
-) (
-    input  wire         clock,
-    input  wire         reset,
-    input  wire         sclr,
-    input  wire         conta,
-    output reg  [N-1:0] q,
-    output wire         fim,
-    output wire         meio
+  parameter Modulo = 50,
+  parameter Width  = 6
+)(
+  input  wire             clk,
+  input  wire             arst,
+  input  wire             sclr,
+  input  wire             conta,
+  output reg  [Width-1:0] q,
+  output wire             fim,
+  output wire             meio
 );
 
-    localparam [N-1:0] M_VAL  = M[N-1:0];
-    localparam [N-1:0] M_FIM  = M_VAL - {{(N-1){1'b0}}, 1'b1};
-    localparam [N-1:0] M_MEIO = (M[N-1:0] >> 1'b1) - {{(N-1){1'b0}}, 1'b1};
+  localparam [Width-1:0] MVal  = Modulo[Width-1:0];
+  localparam [Width-1:0] MFim  = (Modulo > 0) ? (Modulo - 1) : 0;
+  localparam [Width-1:0] MMeio = (Modulo > 1) ? ((Modulo / 2) - 1) : 0;
 
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            q <= {N{1'b0}};
-        end else if (sclr) begin
-            q <= {N{1'b0}};
-        end else if (conta) begin
-            if (q == M_FIM) begin
-                q <= {N{1'b0}};
-            end else begin
-                q <= q + {{(N-1){1'b0}}, 1'b1};
-            end
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      q <= {Width{1'b0}};
+    end else if (sclr) begin
+      q <= {Width{1'b0}};
+    end else if (conta) begin
+      if (q == MFim) begin
+        q <= {Width{1'b0}};
+      end else begin
+        q <= q + {{(Width-1){1'b0}}, 1'b1};
+      end
     end
+  end
 
-    assign fim = (q == M_FIM);
-    assign meio = (q == M_MEIO);
+  assign fim  = (q == MFim);
+  assign meio = (q == MMeio);
 
 endmodule
 

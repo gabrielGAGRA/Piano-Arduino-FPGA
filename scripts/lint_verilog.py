@@ -754,30 +754,52 @@ class VerilogLinter:
             raw_lines[l_num - 1],
         )
 
-    # Parameters & Localparams casing
-    re_param = re.compile(
-        r"\b(?:parameter|localparam)\s+(?:(?:signed\s+)?\[[^\]]+\]\s+)?([A-Za-z0-9_]+)\s*="
+    # Parameters & Localparams casing (handles single-line and multi-line comma-separated blocks)
+    re_param_block = re.compile(
+        r"\b(parameter|localparam)\s+(?:(?:signed\s+)?\[[^\]]+\]\s+)?([^;]+);",
+        re.DOTALL,
     )
-    for idx, line in enumerate(masked_lines):
-      line_num = idx + 1
-      for m in re_param.finditer(line):
-        p_name = m.group(1)
-        is_fsm_candidate = any(
-            s in p_name.upper()
-            for s in ("STATE", "IDLE", "WAIT", "READ", "WRITE", "DONE", "INIT")
+    for m_block in re_param_block.finditer(source_text):
+      kw = m_block.group(1)
+      block_body = m_block.group(2)
+      block_start = m_block.start()
+      is_fsm_block = (kw == "localparam") and (
+          any(
+              s in block_body.upper()
+              for s in ("STATE", "IDLE", "WAIT", "READ", "WRITE", "DONE")
+          )
+          or any(
+              RE_K_CAMEL.match(m.group(1))
+              for m in re.finditer(r"\b([A-Za-z0-9_]+)\s*=", block_body)
+          )
+      )
+      for m_assign in re.finditer(r"\b([A-Za-z0-9_]+)\s*=", block_body):
+        p_name = m_assign.group(1)
+        abs_pos = block_start + m_assign.start(1)
+        line_num = source_text[:abs_pos].count("\n") + 1
+        snippet = raw_lines[line_num - 1] if line_num <= len(raw_lines) else ""
+        col_num = abs_pos - source_text.rfind("\n", 0, abs_pos)
+
+        is_fsm_candidate = (
+            is_fsm_block
+            or RE_K_CAMEL.match(p_name)
+            or any(
+                s in p_name.upper()
+                for s in ("STATE", "IDLE", "WAIT", "READ", "WRITE", "DONE")
+            )
         )
         if is_fsm_candidate:
-          if "parameter" in line and "localparam" not in line:
+          if kw == "parameter":
             self._add(
                 violations,
                 waivers,
                 "FSM_STATE_NAMING_STYLE",
                 file_path,
                 line_num,
-                m.start(1) + 1,
+                col_num,
                 f"FSM state constant '{p_name}' declared with 'parameter'. Use"
                 " 'localparam [WIDTH-1:0]'.",
-                raw_lines[idx],
+                snippet,
             )
           if not RE_K_CAMEL.match(p_name):
             self._add(
@@ -786,10 +808,10 @@ class VerilogLinter:
                 "FSM_STATE_NAMING_STYLE",
                 file_path,
                 line_num,
-                m.start(1) + 1,
+                col_num,
                 f"FSM state constant '{p_name}' must use kUpperCamelCase"
                 f" (e.g. 'k{p_name.capitalize()}').",
-                raw_lines[idx],
+                snippet,
             )
         else:
           if not RE_UPPER_CAMEL.match(p_name):
@@ -799,9 +821,9 @@ class VerilogLinter:
                 "PARAM_NAMING_STYLE",
                 file_path,
                 line_num,
-                m.start(1) + 1,
+                col_num,
                 f"Parameter/localparam '{p_name}' must use UpperCamelCase.",
-                raw_lines[idx],
+                snippet,
             )
 
     # Signal names ending with underscore-number (e.g. data_1, foo_2)
@@ -934,22 +956,23 @@ class VerilogLinter:
               f" '[{right}:{left}]'.",
               raw_lines[idx],
           )
-      # Check unpacked dimension
-      m_unp = re.search(r"\b(?:reg|wire)\s+.*?\[\s*(\d+)\s*:\s*(\d+)\s*\]\s*;", line)
-      if m_unp:
-        left, right = int(m_unp.group(1)), int(m_unp.group(2))
-        if left > right:
-          self._add(
-              violations,
-              waivers,
-              "PACKED_UNPACKED_ENDIANNESS",
-              file_path,
-              line_num,
-              m_unp.start() + 1,
-              f"Unpacked array range '[{left}:{right}]' must be big-endian"
-              f" '[{right}:{left}]'.",
-              raw_lines[idx],
-          )
+      # Check unpacked dimension (only actual memory declarations, excluding continuous assignments)
+      if "=" not in line:
+        m_unp = re.search(r"\b(?:reg|wire)\s+(?:\[[^\]]+\]\s+)?[a-zA-Z_0-9]+\s*\[\s*(\d+)\s*:\s*(\d+)\s*\]\s*;", line)
+        if m_unp:
+          left, right = int(m_unp.group(1)), int(m_unp.group(2))
+          if left > right:
+            self._add(
+                violations,
+                waivers,
+                "PACKED_UNPACKED_ENDIANNESS",
+                file_path,
+                line_num,
+                m_unp.start() + 1,
+                f"Unpacked array range '[{left}:{right}]' must be big-endian"
+                f" '[{right}:{left}]'.",
+                raw_lines[idx],
+            )
 
   def _check_procedural_blocks(
       self,
@@ -1076,7 +1099,7 @@ class VerilogLinter:
             )
 
       # Parentheses around reduction operators preceded by another operator: e.g. ~&foo, !|bar
-      m_red = re.search(r"(?:[~!&|^])\s*([&|^]|~[&|^])\s*[a-zA-Z_]", line)
+      m_red = re.search(r"(?:~|!)\s*([&|^]|~[&|^])(?![&|=~^])\s*[a-zA-Z_]", line)
       if m_red:
         self._add(
             violations,
@@ -1092,7 +1115,8 @@ class VerilogLinter:
         )
 
       # Nested ternary without parentheses: ? ... : ... ? ... :
-      if re.search(r"\?[^:]+:\s*[^;?]+?\?", line):
+      m_tern = re.search(r"\?[^:?]+:\s*([^;()?]+)\?", line)
+      if m_tern:
         self._add(
             violations,
             waivers,
@@ -1232,6 +1256,157 @@ class VerilogLinter:
         in_always_header = False
         block_depth = 0
 
+  def _extract_instantiations(
+      self, source_text: str, raw_lines: List[str]
+  ) -> List[Tuple[str, Optional[str], str, str, int, str]]:
+    # Mask out procedural blocks (always, initial, task, function)
+    chars = list(source_text)
+    n = len(chars)
+    i = 0
+    while i < n:
+      m_task = re.match(r"\b(task|function)\b", source_text[i:])
+      if m_task:
+        kw = m_task.group(1)
+        m_end = re.search(r"\bend" + kw + r"\b", source_text[i:])
+        if m_end:
+          end_pos = i + m_end.end()
+          for j in range(i, end_pos):
+            if chars[j] != "\n":
+              chars[j] = " "
+          i = end_pos
+          continue
+      m_proc = re.match(r"\b(always|initial)\b", source_text[i:])
+      if m_proc:
+        start_pos = i
+        j = i + m_proc.end()
+        while j < n and source_text[j] in " \t\r\n":
+          j += 1
+        if j < n and source_text[j] == "@":
+          while j < n and source_text[j] != "(":
+            j += 1
+          depth = 1
+          j += 1
+          while j < n and depth > 0:
+            if source_text[j] == "(":
+              depth += 1
+            elif source_text[j] == ")":
+              depth -= 1
+            j += 1
+        while j < n and source_text[j] in " \t\r\n":
+          j += 1
+        if j < n and source_text[j : j + 5] == "begin":
+          depth = 1
+          j += 5
+          while j < n and depth > 0:
+            if re.match(r"\bbegin\b", source_text[j:]):
+              depth += 1
+              j += 5
+            elif re.match(r"\bend\b", source_text[j:]):
+              depth -= 1
+              j += 3
+            else:
+              j += 1
+        else:
+          while j < n and source_text[j] != ";":
+            j += 1
+          if j < n:
+            j += 1
+        for k in range(start_pos, min(j, n)):
+          if chars[k] != "\n":
+            chars[k] = " "
+        i = j
+        continue
+      i += 1
+    src = "".join(chars)
+
+    # Mask compiler directives (`default_nettype, `timescale, `include, etc.)
+    src = re.sub(r"^\s*`[^\n]*", lambda m: " " * len(m.group(0)), src, flags=re.MULTILINE)
+
+    # Mask module header so module declaration itself isn't parsed
+    src = re.sub(
+        r"\bmodule\s+[a-zA-Z_0-9]+(?:\s*#\s*\([\s\S]*?\))?\s*\([\s\S]*?\)\s*;",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        src,
+    )
+    # Mask continuous assigns, wire/reg declarations, param declarations
+    src = re.sub(r"\bassign\s+[^;]+;", lambda m: re.sub(r"[^\n]", " ", m.group(0)), src)
+    src = re.sub(
+        r"\b(?:wire|reg|input|output|inout|integer|genvar|real|time)\b[^;]+;",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        src,
+    )
+    src = re.sub(
+        r"\b(?:parameter|localparam)\b[^;]+;",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        src,
+    )
+
+    def extract_balanced_paren(text: str, start_idx: int) -> Tuple[Optional[str], int]:
+      depth = 0
+      for idx in range(start_idx, len(text)):
+        if text[idx] == "(":
+          depth += 1
+        elif text[idx] == ")":
+          depth -= 1
+          if depth == 0:
+            return text[start_idx + 1 : idx], idx + 1
+      return None, len(text)
+
+    non_mod_keywords = {
+        "module", "endmodule", "input", "output", "inout", "wire", "reg",
+        "integer", "genvar", "real", "time", "parameter", "localparam",
+        "assign", "generate", "endgenerate", "defparam", "begin", "end",
+        "if", "else", "case", "casex", "casez", "initial", "always",
+        "task", "endtask", "function", "endfunction", "repeat", "while",
+        "for", "forever", "fork", "join", "disable", "posedge", "negedge",
+    }
+
+    instantiations = []
+    pattern = re.compile(r"\b([a-zA-Z_0-9]+)\s*(#|\b[a-zA-Z_0-9]+\s*\()")
+    pos = 0
+    while pos < len(src):
+      m = pattern.search(src, pos)
+      if not m:
+        break
+      mod_type = m.group(1)
+      if mod_type in non_mod_keywords or mod_type.startswith("$"):
+        pos = m.end()
+        continue
+
+      curr_idx = m.start() + len(mod_type)
+      while curr_idx < len(src) and src[curr_idx] in " \t\r\n":
+        curr_idx += 1
+
+      param_overrides = None
+      if curr_idx < len(src) and src[curr_idx] == "#":
+        curr_idx += 1
+        while curr_idx < len(src) and src[curr_idx] in " \t\r\n":
+          curr_idx += 1
+        if curr_idx < len(src) and src[curr_idx] == "(":
+          param_overrides, curr_idx = extract_balanced_paren(src, curr_idx)
+
+      m_inst = re.match(r"\s*([a-zA-Z_0-9]+)\s*\(", src[curr_idx:])
+      if not m_inst:
+        pos = m.end()
+        continue
+
+      inst_name = m_inst.group(1)
+      if inst_name in non_mod_keywords or inst_name.startswith("$"):
+        pos = m.end()
+        continue
+
+      paren_start = curr_idx + m_inst.end() - 1
+      port_list, end_idx = extract_balanced_paren(src, paren_start)
+      if port_list is None:
+        port_list = ""
+
+      line_num = source_text[: m.start()].count("\n") + 1
+      snippet = raw_lines[line_num - 1] if line_num <= len(raw_lines) else ""
+      instantiations.append((mod_type, param_overrides, inst_name, port_list, line_num, snippet))
+      pos = end_idx
+
+    return instantiations
+
   def _check_instantiations_and_generate(
       self,
       file_path: Path,
@@ -1287,18 +1462,11 @@ class VerilogLinter:
                   raw_lines[idx],
               )
 
-    # Submodule instantiations
-    for match in RE_INST.finditer(source_text):
-      mod_type = match.group(1)
-      param_overrides = (match.group(2) or "").strip()
-      inst_name = match.group(3)
-      port_list = match.group(4).strip()
-
+    # Submodule instantiations (extracted safely at module scope)
+    instantiations = self._extract_instantiations(source_text, raw_lines)
+    for mod_type, param_overrides, inst_name, port_list, line_num, snippet in instantiations:
       if mod_type in RESERVED_KEYWORDS or inst_name in RESERVED_KEYWORDS:
         continue
-
-      line_num = source_text[: match.start()].count("\n") + 1
-      snippet = raw_lines[line_num - 1] if line_num <= len(raw_lines) else ""
 
       # Recursive instantiation check
       if mod_type == file_path.stem and not is_tb:
@@ -1314,7 +1482,7 @@ class VerilogLinter:
         )
 
       # Instance naming convention: must start with module name, or dut/uut in TB
-      valid_name = inst_name.startswith(mod_type) or inst_name.startswith("u_")
+      valid_name = inst_name.startswith(mod_type)
       if is_tb:
         valid_name = valid_name or inst_name in (
             "dut",
@@ -1613,7 +1781,7 @@ class VerilogLinter:
 
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-      description=(
+      Descrição=(
           "Strict Verilog-2001 & Cyclone V RTL Linter (Google Style Guide"
           " Aligned)"
       ),
@@ -1625,7 +1793,7 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument(
       "--exclude",
       action="append",
-      default=[],
+      default=["local", ".git", "work", "__pycache__"],
       help="Patterns or directory names to exclude",
   )
   parser.add_argument(

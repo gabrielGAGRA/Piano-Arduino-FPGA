@@ -1,18 +1,17 @@
+// Descrição: Decodificador para exibir simbolo sustenido '#' em display 7 seg.
+// Funcionamento: Ativa segmentos especificos (ativo em nivel baixo) para
+// desenhar o glifo '#' quando sustenido estiver em nivel alto.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-// Descricao: Implementa a lógica do sustenido para mostrar "H" (representando #)
 module display_sustenido (
-    input  wire       sustenido,
-    output reg  [6:0] display
+  input  wire       sustenido,
+  output wire [6:0] display
 );
 
-    always @(*) begin
-        case (sustenido)
-            1'b1: display = 7'b0001001; // H (Tentativa de # em 7-seg)
-            default: display = 7'b1111111; // Desligado se nao houver sustenido
-        endcase
-    end
+  // Padrao do '#' no display: apaga se sustenido for 0
+  assign display = sustenido ? 7'b0110110 : 7'b1111111;
 
 endmodule
 

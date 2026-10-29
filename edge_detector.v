@@ -1,34 +1,31 @@
+// Descrição: Detector de borda de subida com saida de 1 periodo de clock.
+// Funcionamento: Pipeline de 2 registradores em cascata que detecta transicao 0->1
+// no sinal de entrada e gera pulso de 1 ciclo sincronizado com o clock local.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-/*
- *  Descricao : detector de borda
- *              gera um pulso na saida de 1 periodo de clock
- *              a partir da detecao da borda de subida da entrada
- *              sinal de reset ativo em alto
- */
- 
 module edge_detector (
-    input  wire clock,
-    input  wire reset,
-    input  wire sinal,
-    output wire pulso
+  input  wire clk,
+  input  wire arst,
+  input  wire sinal,
+  output wire pulso
 );
 
-    reg sinal_d1_q;
-    reg sinal_d2_q;
+  reg sinal_d1_reg;
+  reg sinal_d2_reg;
 
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            sinal_d1_q <= 1'b0;
-            sinal_d2_q <= 1'b0;
-        end else begin
-            sinal_d1_q <= sinal;
-            sinal_d2_q <= sinal_d1_q;
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      sinal_d1_reg <= 1'b0;
+      sinal_d2_reg <= 1'b0;
+    end else begin
+      sinal_d1_reg <= sinal;
+      sinal_d2_reg <= sinal_d1_reg;
     end
+  end
 
-    assign pulso = ~sinal_d2_q & sinal_d1_q;
+  assign pulso = sinal_d1_reg && !sinal_d2_reg;
 
 endmodule
 

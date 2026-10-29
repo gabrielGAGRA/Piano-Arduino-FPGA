@@ -381,7 +381,7 @@ def detect_anomalies(vcd, sig_ids, start_tick=None, end_tick=None):
     return "### Signal Diagnostic Anomalies Detected:\n" + "\n".join(anomalies)
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM-Optimized VCD Waveform Trace Analysis Tool")
+    parser = argparse.ArgumentParser(Descrição="LLM-Optimized VCD Waveform Trace Analysis Tool")
     parser.add_argument("vcd_file", help="Path to the .vcd file to analyze")
     parser.add_argument("--signals", "-s", help="Comma-separated list of signals to trace (e.g. clock,reset,state,saida)")
     parser.add_argument("--clock", "-c", help="Clock signal name for synchronous edge sampling (e.g. clock, clk)")

@@ -1,6 +1,6 @@
 ---
 name: pin-mapper
-description: >-
+Descrição: >-
   Maps top-level Verilog ports or node names to physical FPGA pins on the DE0-CV.
 ---
 

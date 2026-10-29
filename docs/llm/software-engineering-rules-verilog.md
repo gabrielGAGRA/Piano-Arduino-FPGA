@@ -5,11 +5,10 @@
 - **File Extensions**: Use `.v` for synthesizable modules; `.vh` for header files. SystemVerilog extensions (`.sv`, `.svh`) are prohibited.
 - **Single Design Element per File**: Exactly one module per `.v` file. The module name must exactly match the file basename.
 - **Top-Level & Test Naming**: Top-level chip wrapper must be named `<design>_top.v`. Unit testbenches must be named `<module>_test.v` (or `tb_<module>.v` / `<module>_tb.v`).
-- **File Header Comment**: Every file must start with a descriptive header comment explaining what problem the module solves and an overview of its theory of operation:
+- **File Header Comment**: Every file must start with a descriptive header comment explaining what problem the module solves and an overview of its Funcionamento:
   ```verilog
-  // Copyright 2026 ...
-  // Description: Single-clock FIFO buffer with synchronous status flags.
-  // Theory of Operation: Circular ring buffer using Cyclone V M10K block RAM.
+  // Descrição: Single-clock FIFO buffer with synchronous status flags.
+  // Funcionamento: Circular ring buffer using Cyclone V M10K block RAM.
   ```
 - **Compiler Directives**: Always declare `` `default_nettype none `` at the top of every file before module declarations to prevent silent implicit net inference. Restore with `` `default_nettype wire `` after `endmodule`.
 - **Header Files (`.vh`)**: Shared constants and macros across modules must reside in `.vh` files with standard include guards:

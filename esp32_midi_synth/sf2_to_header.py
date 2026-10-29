@@ -168,7 +168,7 @@ def write_c_header(sf2_bytes: bytes, output_path: str, source_desc: str) -> None
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Converte um arquivo SoundFont (.sf2) para piano_sf2.h."
+        Descrição="Converte um arquivo SoundFont (.sf2) para piano_sf2.h."
     )
     parser.add_argument(
         "input_sf2",

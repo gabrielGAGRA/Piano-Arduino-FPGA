@@ -1,30 +1,33 @@
+// Descrição: Memoria ROM sincrona inicializavel por arquivo binario.
+// Funcionamento: Infere M10K ROM sincrona populada com partituras via
+// diretiva $readmemb durante elaboracao e simulacao.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-// Descricao: ROM Sincrona parametrizavel que le de um arquivo de texto.
 module sync_rom #(
-    parameter DATA_WIDTH = 4,
-    parameter ADDR_WIDTH = 8,
-    parameter INIT_FILE = "Au_Clair_de_La_Lune.txt"
+  parameter DataWidth = 30,
+  parameter AddrWidth = 10,
+  parameter InitFile  = "musica0.bin"
 )(
-    input  wire                  clock,
-    input  wire [ADDR_WIDTH-1:0] address,
-    output reg  [DATA_WIDTH-1:0] data_out
+  input  wire                 clk,
+  input  wire [AddrWidth-1:0] address,
+  output reg  [DataWidth-1:0] data_out
 );
 
-    (* ramstyle = "M10K" *) reg [DATA_WIDTH-1:0] rom [0:(2**ADDR_WIDTH)-1];
+  (* ramstyle = "M10K" *) reg [DataWidth-1:0] rom [0:(2**AddrWidth)-1];
 
-    integer i;
-    initial begin
-        for (i = 0; i < (2**ADDR_WIDTH); i = i + 1) begin
-            rom[i] = {DATA_WIDTH{1'b0}};
-        end
-        $readmemb(INIT_FILE, rom);
+  integer i;
+  initial begin
+    for (i = 0; i < (2**AddrWidth); i = i + 1) begin
+      rom[i] = {DataWidth{1'b0}};
     end
+    $readmemb(InitFile, rom);
+  end
 
-    always @(posedge clock) begin
-        data_out <= rom[address];
-    end
+  always @(posedge clk) begin
+    data_out <= rom[address];
+  end
 
 endmodule
 

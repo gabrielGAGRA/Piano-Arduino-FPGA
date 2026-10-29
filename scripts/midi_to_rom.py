@@ -316,7 +316,7 @@ def write_rom_file(path: str, lines: List[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA.")
+    parser = argparse.ArgumentParser(Descrição="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA.")
     parser.add_argument(
         "--midi",
         default="music/debussy-clair-de-lune.mid",

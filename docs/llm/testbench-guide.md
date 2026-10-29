@@ -1,6 +1,5 @@
 # Testbench Verification & Simulation Guide
 
-
 ## 1. Golden Rules of RTL Verification
 
 1. **Self-Checking (Automated Pass/Fail):** Testbenches MUST NOT require manual waveform inspection to determine success. Automated checks with assertions and an error counter MUST report unambiguous `PASSED` or `FAILED` banners.
@@ -67,7 +66,7 @@ Organize verification into discrete, named tasks (e.g., `test_reset_behavior`, `
 ## 3. Standard Testbench Template
 
 ```verilog
-// Description: Self-checking testbench for my_module.
+// Descrição: Self-checking testbench for my_module.
 // Tests: Reset state, basic transaction flow, edge cases.
 
 `timescale 1ns / 1ps

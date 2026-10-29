@@ -1,37 +1,35 @@
+// Descrição: Registrador de deslocamento parametrizavel de N bits.
+// Funcionamento: Suporta carga paralela sincrona e deslocamento a direita
+// com insercao serial no bit mais significativo.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-/*
- * Descricao : Registrador de deslocamento parametrizavel de N bits
- *             com carga paralela e deslocamento a direita.
- */
 module deslocador_n #(
-    parameter N = 4
-) (
-    input  wire         clock,
-    input  wire         reset,
-    input  wire         carrega,
-    input  wire         desloca,
-    input  wire         entrada_serial,
-    input  wire [N-1:0] dados,
-    output wire [N-1:0] saida
+  parameter Width = 11
+)(
+  input  wire             clk,
+  input  wire             arst,
+  input  wire             carrega,
+  input  wire             desloca,
+  input  wire             entrada_serial,
+  input  wire [Width-1:0] dados,
+  output wire [Width-1:0] saida
 );
 
-    reg [N-1:0] dados_q;
+  reg [Width-1:0] registrador_reg;
 
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            dados_q <= {N{1'b1}};
-        end else begin
-            if (carrega) begin
-                dados_q <= dados;
-            end else if (desloca) begin
-                dados_q <= {entrada_serial, dados_q[N-1:1]};
-            end
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      registrador_reg <= {Width{1'b1}};
+    end else if (carrega) begin
+      registrador_reg <= dados;
+    end else if (desloca) begin
+      registrador_reg <= {entrada_serial, registrador_reg[Width-1:1]};
     end
+  end
 
-    assign saida = dados_q;
+  assign saida = registrador_reg;
 
 endmodule
 

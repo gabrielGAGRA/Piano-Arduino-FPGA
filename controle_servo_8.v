@@ -1,73 +1,65 @@
+// Descrição: Controlador de largura de pulso para servomotor com 8 posicoes.
+// Funcionamento: Gera sinal periodico de 20 ms via modulacao PWM de 50 Hz com
+// 8 larguras de pulso calibradas para varredura angular restrita de 30 graus (~90 graus no centro).
+// A largura e atualizada no rollover do contador para prevenir glitches durante operacao.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-/* 
- *  Descricao : Circuito de controle para servomotor SG90 com 8 posicoes angulares
- *              distribuidas em uma amplitude de 30° (75° a 105° centralizado em ~90°)
- *              via modulacao PWM de 50 Hz.
- */
-
 module controle_servo_8 #(
-    parameter CONF_PERIODO = 1000000, // Periodo PWM (20ms a 50MHz)
-    parameter LARGURA_000  = 66667,   // 1,333 ms (75,0°)
-    parameter LARGURA_001  = 69048,   // 1,381 ms (79,3°)
-    parameter LARGURA_010  = 71429,   // 1,429 ms (83,6°)
-    parameter LARGURA_011  = 73810,   // 1,476 ms (87,9° - Centro / Repouso)
-    parameter LARGURA_100  = 76190,   // 1,524 ms (92,1°)
-    parameter LARGURA_101  = 78571,   // 1,571 ms (96,4°)
-    parameter LARGURA_110  = 80952,   // 1,619 ms (100,7°)
-    parameter LARGURA_111  = 83333    // 1,667 ms (105,0°)
-) (
-    input  wire       clock,
-    input  wire       reset,
-    input  wire [2:0] posicao,
-    output wire       controle,
-    output wire       db_reset,
-    output wire [2:0] db_posicao,
-    output wire       db_controle
+  parameter ConfPeriodo = 1_000_000,
+  parameter Largura000  = 66_667,
+  parameter Largura001  = 69_048,
+  parameter Largura010  = 71_429,
+  parameter Largura011  = 73_810,
+  parameter Largura100  = 76_190,
+  parameter Largura101  = 78_571,
+  parameter Largura110  = 80_952,
+  parameter Largura111  = 83_333
+)(
+  input  wire       clk,
+  input  wire       arst,
+  input  wire [2:0] posicao,
+  output wire       controle
 );
 
-    reg [31:0] contagem_q;
-    reg [31:0] largura_pwm_q;
-    reg        s_controle_q;
+  reg [31:0] contador_reg;
+  reg [31:0] largura_pwm_reg;
+  reg        controle_reg;
 
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            largura_pwm_q <= LARGURA_011; // Repouso no centro
-        end else if (contagem_q == CONF_PERIODO - 32'd1) begin
-            case (posicao)
-                3'b000:  largura_pwm_q <= LARGURA_000;
-                3'b001:  largura_pwm_q <= LARGURA_001;
-                3'b010:  largura_pwm_q <= LARGURA_010;
-                3'b011:  largura_pwm_q <= LARGURA_011;
-                3'b100:  largura_pwm_q <= LARGURA_100;
-                3'b101:  largura_pwm_q <= LARGURA_101;
-                3'b110:  largura_pwm_q <= LARGURA_110;
-                3'b111:  largura_pwm_q <= LARGURA_111;
-                default: largura_pwm_q <= LARGURA_011;
-            endcase
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      largura_pwm_reg <= Largura011;
+    end else if (contador_reg == ConfPeriodo - 32'd1) begin
+      case (posicao)
+        3'b000:  largura_pwm_reg <= Largura000;
+        3'b001:  largura_pwm_reg <= Largura001;
+        3'b010:  largura_pwm_reg <= Largura010;
+        3'b011:  largura_pwm_reg <= Largura011;
+        3'b100:  largura_pwm_reg <= Largura100;
+        3'b101:  largura_pwm_reg <= Largura101;
+        3'b110:  largura_pwm_reg <= Largura110;
+        3'b111:  largura_pwm_reg <= Largura111;
+        default: largura_pwm_reg <= Largura011;
+      endcase
     end
+  end
 
-    // Base de tempo periodica continua de 20 ms para o servomotor
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            contagem_q   <= 32'd0;
-            s_controle_q <= 1'b0;
-        end else begin
-            if (contagem_q == CONF_PERIODO - 32'd1) begin
-                contagem_q <= 32'd0;
-            end else begin
-                contagem_q <= contagem_q + 32'd1;
-            end
-            s_controle_q <= (contagem_q < largura_pwm_q);
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      contador_reg <= 32'd0;
+      controle_reg <= 1'b0;
+    end else begin
+      if (contador_reg == ConfPeriodo - 32'd1) begin
+        contador_reg <= 32'd0;
+      end else begin
+        contador_reg <= contador_reg + 32'd1;
+      end
+      controle_reg <= (contador_reg < largura_pwm_reg);
     end
+  end
 
-    assign controle    = s_controle_q;
-    assign db_reset    = reset;
-    assign db_posicao  = posicao;
-    assign db_controle = s_controle_q;
+  assign controle = controle_reg;
 
 endmodule
 

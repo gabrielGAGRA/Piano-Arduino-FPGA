@@ -1,6 +1,6 @@
 ---
 name: adversarial-review 
-description: Independently try to break every diff and retain only evidence-backed findings.
+Descrição: Independently try to break every diff and retain only evidence-backed findings.
 ---
 
 # Adversarial Review

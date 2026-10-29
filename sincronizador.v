@@ -1,35 +1,34 @@
+// Descrição: Sincronizador de sinal assincrono com 2 estagios de flip-flops.
+// Funcionamento: Captura um sinal assincrono em dois registradores em cascata
+// para mitigar metaestabilidade na transicao para o dominio de clock.
+
 `timescale 1ns / 1ps
 `default_nettype none
 
-/* 
- *  Descricao : Sincronizador de 2 estagios de flip-flops para prevencao
- *              de metaestabilidade em sinais assincronos.
- */
-
 module sincronizador #(
-    parameter WIDTH = 1,
-    parameter [WIDTH-1:0] INIT_VALUE = {WIDTH{1'b0}}
+  parameter Width     = 1,
+  parameter InitValue = 1'b0
 )(
-    input  wire                  clock,
-    input  wire                  reset,
-    input  wire [WIDTH-1:0]      async_in,
-    output wire [WIDTH-1:0]      sync_out
+  input  wire             clk,
+  input  wire             arst,
+  input  wire [Width-1:0] async_in,
+  output wire [Width-1:0] sync_out
 );
 
-    reg [WIDTH-1:0] sync0_reg;
-    reg [WIDTH-1:0] sync1_reg;
+  reg [Width-1:0] sync_stage1_reg;
+  reg [Width-1:0] sync_stage2_reg;
 
-    always @(posedge clock or posedge reset) begin
-        if (reset) begin
-            sync0_reg <= INIT_VALUE;
-            sync1_reg <= INIT_VALUE;
-        end else begin
-            sync0_reg <= async_in;
-            sync1_reg <= sync0_reg;
-        end
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      sync_stage1_reg <= {Width{InitValue}};
+      sync_stage2_reg <= {Width{InitValue}};
+    end else begin
+      sync_stage1_reg <= async_in;
+      sync_stage2_reg <= sync_stage1_reg;
     end
+  end
 
-    assign sync_out = sync1_reg;
+  assign sync_out = sync_stage2_reg;
 
 endmodule
 

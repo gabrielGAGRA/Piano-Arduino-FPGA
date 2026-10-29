@@ -1,6 +1,6 @@
 ---
 trigger: always_on
-description: >
+Descrição: >
 ---
 
 # Meta rules

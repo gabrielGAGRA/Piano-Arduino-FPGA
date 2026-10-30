@@ -1,4 +1,4 @@
-// Descrição: Fluxo de dados (datapath) da transmissao serial assincrona 8N1.
+// Descricao: Fluxo de dados (datapath) da transmissao serial assincrona 8N1.
 // Funcionamento: Monta a trama serial de 11 bits (1 repouso + 1 start + 8 dados + 1 stop)
 // e realiza o deslocamento sequencial a cada pulso de controle.
 

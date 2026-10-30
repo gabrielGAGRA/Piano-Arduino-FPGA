@@ -1,4 +1,4 @@
-// Descrição: Unidade de controle da transmissao serial assincrona 8N1.
+// Descricao: Unidade de controle da transmissao serial assincrona 8N1.
 // Funcionamento: FSM com estados kIdle, kPreparacao, kEspera, kTransmissao
 // e kFinalTx para orquestrar shift register e contador de bits.
 

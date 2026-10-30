@@ -1,4 +1,4 @@
-// Descrição: Registrador de deslocamento parametrizavel de N bits.
+// Descricao: Registrador de deslocamento parametrizavel de N bits.
 // Funcionamento: Suporta carga paralela sincrona e deslocamento a direita
 // com insercao serial no bit mais significativo.
 

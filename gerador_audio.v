@@ -1,4 +1,4 @@
-// Descrição: Simula a dinamica de um piano com envelope ADSR e sintese sonora.
+// Descricao: Simula a dinamica de um piano com envelope ADSR e sintese sonora.
 // Funcionamento: Combina oscilador de frequencia configuravel com modulador
 // de envelope ADSR de 4 estados e atenuador de ganho por PWM de alta frequencia.
 

@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para a tabela LUT de frequencias (frequencia_lut).
+// Descricao: Testbench auto-verificavel para a tabela LUT de frequencias (frequencia_lut).
 // Funcionamento: Valida mapeamento de notas (Do a Si) nas oitavas 4, 5, 6 e 7,
 // com e sem sustenido, e saida default (0) para entradas invalidas.
 
@@ -26,7 +26,7 @@ module frequencia_lut_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out in frequencia_lut_tb!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em frequencia_lut_tb!", $time);
     $finish;
   end
 
@@ -37,7 +37,7 @@ module frequencia_lut_tb;
     begin
       #1;
       if (n_ticks !== expected) begin
-        $display("[FAIL] %0t ns | %0s: esperado %0d (18'h%h), obtido %0d (18'h%h)",
+        $display("[FALHA] %0t ns | %0s: esperado %0d (18'h%h), obtido %0d (18'h%h)",
           $time, test_tag, expected, expected, n_ticks, n_ticks);
         errors = errors + 1;
       end
@@ -124,25 +124,20 @@ module frequencia_lut_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: frequencia_lut_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: frequencia_lut_tb");
 
     test_oitava_4();
     test_oitavas_subsequentes();
     test_valores_invalidos();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

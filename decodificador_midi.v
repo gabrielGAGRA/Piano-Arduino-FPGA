@@ -1,4 +1,4 @@
-// Descrição: Decodificador de numero de nota MIDI para oitava, sustenido e ID.
+// Descricao: Decodificador de numero de nota MIDI para oitava, sustenido e ID.
 // Funcionamento: Converte nota MIDI (24..107) em oitava (1..7), sustenido
 // e ID da nota (1..7) via tabela combinacional, retornando 0 para notas invalidas.
 

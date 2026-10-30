@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o contador parametrizavel (contador_m).
+// Descricao: Testbench auto-verificavel para o contador parametrizavel (contador_m).
 // Funcionamento: Valida reset assincrono (arst), contagem progressiva,
 // deteccao de meio e fim, wrap-around, clear sincrono (sclr) e inibicao.
 
@@ -42,7 +42,7 @@ module contador_m_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out in contador_m_tb!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em contador_m_tb!", $time);
     $finish;
   end
 
@@ -65,7 +65,7 @@ module contador_m_tb;
   );
     begin
       if (actual !== expected) begin
-        $display("[FAIL] %0t ns | %0s: esperado %0d, obtido %0d",
+        $display("[FALHA] %0t ns | %0s: esperado %0d, obtido %0d",
           $time, test_tag, expected, actual);
         errors = errors + 1;
       end
@@ -79,7 +79,7 @@ module contador_m_tb;
   );
     begin
       if (actual !== expected) begin
-        $display("[FAIL] %0t ns | %0s: esperado %b, obtido %b",
+        $display("[FALHA] %0t ns | %0s: esperado %b, obtido %b",
           $time, test_tag, expected, actual);
         errors = errors + 1;
       end
@@ -92,7 +92,7 @@ module contador_m_tb;
   );
     begin
       if (!cond) begin
-        $display("[FATAL ASSERTION] %0t ns | %0s falhou. Abortando simulacao.",
+        $display("[ASSERT FATAL] %0t ns | %0s falhou. Abortando simulacao.",
           $time, fatal_tag);
         $finish;
       end
@@ -184,9 +184,7 @@ module contador_m_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: contador_m_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: contador_m_tb");
 
     test_reset();
     test_contagem_e_flags();
@@ -194,16 +192,13 @@ module contador_m_tb;
     test_inibe_conta();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

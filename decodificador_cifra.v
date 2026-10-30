@@ -1,4 +1,4 @@
-// Descrição: Converte ID da nota musical (1 a 7) para caractere de cifra (C, d, E, F, G, A, b).
+// Descricao: Converte ID da nota musical (1 a 7) para caractere de cifra (C, d, E, F, G, A, b).
 // Funcionamento: Decodifica nota_id [2:0] diretamente nos segmentos a-g
 // ativos em nivel baixo para exibicao no display HEX1.
 

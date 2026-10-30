@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o transmissor UART 8N1 (tx_serial_8N1).
+// Descricao: Testbench auto-verificavel para o transmissor UART 8N1 (tx_serial_8N1).
 // Funcionamento: Valida envio serial assincrono de bytes (start bit, 8 bits LSB
 // first, stop bit) na taxa definida por ClockDiv e checa sinalizacao de pronto.
 
@@ -43,7 +43,7 @@ module tx_serial_8N1_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em tx_serial_8N1_tb!", $time);
     $finish;
   end
 
@@ -72,7 +72,7 @@ module tx_serial_8N1_tb;
 
       @(negedge clk);
       if (saida_serial !== 1'b1) begin
-        $display("[FAIL] %0t ns | %0s: idle line expected 1'b1, got %b",
+        $display("[FALHA] %0t ns | %0s: linha em repouso esperada 1'b1, obtida %b",
           $time, test_tag, saida_serial);
         errors = errors + 1;
       end
@@ -88,7 +88,7 @@ module tx_serial_8N1_tb;
       #1;
       start_bit = saida_serial;
       if (start_bit !== 1'b0) begin
-        $display("[FAIL] %0t ns | %0s: start bit expected 1'b0, got %b",
+        $display("[FALHA] %0t ns | %0s: start bit esperado 1'b0, obtido %b",
           $time, test_tag, start_bit);
         errors = errors + 1;
       end
@@ -103,13 +103,13 @@ module tx_serial_8N1_tb;
       #1;
       stop_bit = saida_serial;
       if (stop_bit !== 1'b1) begin
-        $display("[FAIL] %0t ns | %0s: stop bit expected 1'b1, got %b",
+        $display("[FALHA] %0t ns | %0s: stop bit esperado 1'b1, obtido %b",
           $time, test_tag, stop_bit);
         errors = errors + 1;
       end
 
       if (rx_byte !== expected_byte) begin
-        $display("[FAIL] %0t ns | %0s: expected 8'h%02h, got 8'h%02h",
+        $display("[FALHA] %0t ns | %0s: esperado 8'h%02h, obtido 8'h%02h",
           $time, test_tag, expected_byte, rx_byte);
         errors = errors + 1;
       end
@@ -120,9 +120,7 @@ module tx_serial_8N1_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: tx_serial_8N1_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: tx_serial_8N1_tb");
 
     setup();
 
@@ -135,16 +133,13 @@ module tx_serial_8N1_tb;
     send_and_verify_byte(8'h7F, "MIDI_VELOCITY_MAX_127");
 
     #50;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

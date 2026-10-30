@@ -1,4 +1,4 @@
-// Descrição: Modulador por largura de pulso (PWM) de 4 bits para LEDs.
+// Descricao: Modulador por largura de pulso (PWM) de 4 bits para LEDs.
 // Funcionamento: Modula duty cycle de 0 a 15 comparando com contador de 16 bits
 // a ~762 Hz (50 MHz / 65536).
 

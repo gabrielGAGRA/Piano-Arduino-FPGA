@@ -1,4 +1,4 @@
-// Descrição: Filtro antirruido (debounce) sincrono parametrizavel para botoes.
+// Descricao: Filtro antirruido (debounce) sincrono parametrizavel para botoes.
 // Funcionamento: Sincroniza entradas em dois estagios de flip-flop e
 // acumula amostras consistentes ate atingir TempoFiltro antes de chavear a saida.
 

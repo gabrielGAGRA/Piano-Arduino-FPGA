@@ -1,4 +1,4 @@
-// Descrição: Top-level puramente estrutural do piano digital para FPGA Cyclone V.
+// Descricao: Top-level puramente estrutural do piano digital para FPGA Cyclone V.
 // Funcionamento: Interliga sincronizador de reset, detectores de borda, FSM de controle,
 // fluxo de dados, metronomo e o painel decodificador de displays/LEDs sem logica interna.
 

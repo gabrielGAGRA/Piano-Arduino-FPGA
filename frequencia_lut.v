@@ -1,4 +1,4 @@
-// Descrição: Tabela LUT de frequencias das notas musicais para o sintetizador.
+// Descricao: Tabela LUT de frequencias das notas musicais para o sintetizador.
 // Funcionamento: Converte oitava (4 a 7), nota_id (1 a 7) e sustenido
 // na contagem limite do oscilador (n_ticks) a 50 MHz.
 

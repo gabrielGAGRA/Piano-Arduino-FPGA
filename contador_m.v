@@ -1,4 +1,4 @@
-// Descrição: Contador modulo M parametrizavel com saidas de fim e meio periodo.
+// Descricao: Contador modulo M parametrizavel com saidas de fim e meio periodo.
 // Funcionamento: Contador sincrono sature/wrap de 0 a M-1 que gera pulsos
 // de strobe no meio da contagem e no overflow final, com clear sincrono sclr.
 

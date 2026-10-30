@@ -1,4 +1,4 @@
-// Descrição: Codificador de nota musical (oitava, sustenido e ID) para MIDI.
+// Descricao: Codificador de nota musical (oitava, sustenido e ID) para MIDI.
 // Funcionamento: Realiza tabela combinacional para calcular a nota MIDI (0-127)
 // com base na oitava (1 a 7), ID da nota (1 a 7) e presenca de sustenido.
 

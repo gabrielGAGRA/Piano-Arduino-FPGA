@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel de integracao para o piano_top.
+// Descricao: Testbench auto-verificavel de integracao para o piano_top.
 // Funcionamento: Valida Modo Livre (Note On/Off serial), Modo Gravacao e
 // Demonstracao via RAM (com medicao de duracao), e reproducao da ROM Clair de Lune.
 
@@ -74,7 +74,7 @@ module piano_top_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out in piano_top_tb!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em piano_top_tb!", $time);
     $finish;
   end
 
@@ -126,7 +126,8 @@ module piano_top_tb;
       repeat (ClockDivUart / 2) @(posedge clk);
       #1;
       if (saida_serial !== 1'b0) begin
-        $display("[FAIL] %0t ns | UART start bit error: expected 0, got %b", $time, saida_serial);
+        $display("[FALHA] %0t ns | Erro no start bit UART: esperado 0, obtido %b",
+          $time, saida_serial);
         errors = errors + 1;
       end
       for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
@@ -137,7 +138,8 @@ module piano_top_tb;
       repeat (ClockDivUart) @(posedge clk);
       #1;
       if (saida_serial !== 1'b1) begin
-        $display("[FAIL] %0t ns | UART stop bit error: expected 1, got %b", $time, saida_serial);
+        $display("[FALHA] %0t ns | Erro no stop bit UART: esperado 1, obtido %b",
+          $time, saida_serial);
         errors = errors + 1;
       end
     end
@@ -157,7 +159,7 @@ module piano_top_tb;
       receive_uart_byte(b2);
       actual_packet = {b0, b1, b2};
       if (actual_packet !== expected_packet) begin
-        $display("[FAIL] %0t ns | %0s: expected 24'h%06h, got 24'h%06h",
+        $display("[FALHA] %0t ns | %0s: esperado 24'h%06h, obtido 24'h%06h",
           $time, test_tag, expected_packet, actual_packet);
         errors = errors + 1;
       end
@@ -223,7 +225,7 @@ module piano_top_tb;
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "DEMO_RAM_PLAYBACK_NOTE_OFF");
           t_off = $time;
           if ((t_off - t_on) < (2 * CiclosTick8ms * ClkPeriodNs)) begin
-            $display("[FAIL] %0t ns | DEMO_RAM_DURATION: exp >= %0d ns, got %0d ns",
+            $display("[FALHA] %0t ns | DEMO_RAM_DURATION: esperado >= %0d ns, obtido %0d ns",
               $time, (2 * CiclosTick8ms * ClkPeriodNs), (t_off - t_on));
             errors = errors + 1;
           end
@@ -280,25 +282,20 @@ module piano_top_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: piano_top_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: piano_top_tb");
 
     test_modo_livre_midi();
     test_gravacao_e_demonstracao_ram();
     test_demonstracao_clair_de_lune_rom();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

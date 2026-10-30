@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o codificador MIDI (codificador_midi).
+// Descricao: Testbench auto-verificavel para o codificador MIDI (codificador_midi).
 // Funcionamento: Valida notas naturais, sustenidos e condicoes de silencio
 // em todas as oitavas (0 a 7), garantindo conformidade com a tabela MIDI.
 
@@ -26,7 +26,7 @@ module codificador_midi_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em codificador_midi_tb!", $time);
     $finish;
   end
 
@@ -44,7 +44,7 @@ module codificador_midi_tb;
       nota_id   = in_nota_id;
       #5;
       if (nota_midi !== expected_midi) begin
-        $display("[FAIL] %0t ns | %0s (oitava=%0d, sust=%0b, nota=%0d): expected %0d, got %0d",
+        $display("[FALHA] %0t ns | %0s (oitava=%0d, sust=%0b, nota=%0d): esperado %0d, obtido %0d",
           $time, test_tag, in_oitava, in_sustenido, in_nota_id, expected_midi, nota_midi);
         errors = errors + 1;
       end
@@ -98,24 +98,19 @@ module codificador_midi_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: codificador_midi_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: codificador_midi_tb");
 
     test_silence_cases();
     test_all_octaves_and_notes();
 
     #20;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

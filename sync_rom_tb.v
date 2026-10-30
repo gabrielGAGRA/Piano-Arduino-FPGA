@@ -34,7 +34,7 @@ module sync_rom_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em sync_rom_tb!", $time);
     $finish;
   end
 
@@ -52,20 +52,20 @@ module sync_rom_tb;
       #1; // Espera saida do registrador
       if (check_exact) begin
         if (data_out !== exp_data) begin
-          $display("[FAIL] %0t ns | %0s: addr=%0d, exp=0x%0h, got=0x%0h",
+          $display("[FALHA] %0t ns | %0s: addr=%0d, esperado=0x%0h, obtido=0x%0h",
             $time, test_name, addr, exp_data, data_out);
           errors = errors + 1;
         end else begin
-          $display("[PASS] %0s: addr=%0d -> data=0x%0h", test_name, addr, data_out);
+          $display("[SUCESSO] %0s: addr=%0d -> data=0x%0h", test_name, addr, data_out);
         end
       end else begin
         // Apenas verifica se a nota nao eh zero
         if (data_out[6:0] == 7'd0) begin
-          $display("[FAIL] %0t ns | %0s: addr=%0d nota esperada nao nula, got 0",
+          $display("[FALHA] %0t ns | %0s: addr=%0d nota esperada nao nula, obtido 0",
             $time, test_name, addr);
           errors = errors + 1;
         end else begin
-          $display("[PASS] %0s: addr=%0d -> nota=%0d, data=0x%0h",
+          $display("[SUCESSO] %0s: addr=%0d -> nota=%0d, data=0x%0h",
             test_name, addr, data_out[6:0], data_out);
         end
       end
@@ -73,39 +73,42 @@ module sync_rom_tb;
   endtask
 
   initial begin
-    $display("STARTING SIMULATION: sync_rom_tb");
+    $display("INICIANDO SIMULACAO: sync_rom_tb");
 
     address = {AddrWidth{1'b0}};
     repeat (2) @(posedge clk);
 
     // Teste 1: Endereco 0 deve ser sentinela nulo (30'h0)
-    read_and_verify(14'd0, 30'h0, 1'b1, "ADDR_0_SENTINEL_ZERO");
+    read_and_verify(14'd0, 30'h0, 1'b1, "ADDR_0_SENTINELA_ZERO");
 
     // Teste 2: Endereco 1 (Primeira nota de Clair de Lune) deve ser nota valida
-    read_and_verify(14'd1, 30'h0, 1'b0, "CLAIR_DE_LUNE_FIRST_NOTE");
+    read_and_verify(14'd1, 30'h0, 1'b0, "CLAIR_DE_LUNE_PRIMEIRA_NOTA");
 
     // Teste 3: Endereco 798 (Sentinela ao final de Clair de Lune)
-    read_and_verify(14'd798, 30'h0, 1'b1, "CLAIR_DE_LUNE_SENTINEL_ZERO");
+    read_and_verify(14'd798, 30'h0, 1'b1, "CLAIR_DE_LUNE_SENTINELA_ZERO");
 
     // Teste 4: Endereco 799 (Primeira nota de Do Re Mi Fa) - Nota MIDI 60 (Do)
     // pausa=5, dur=40, vel=100, note=60 -> 0x014a323c
-    read_and_verify(14'd799, 30'h0, 1'b0, "DO_RE_MI_FA_FIRST_NOTE");
+    read_and_verify(14'd799, 30'h0, 1'b0, "DO_RE_MI_FA_PRIMEIRA_NOTA");
 
     // Teste 5: Endereco 805 (Ultima nota da escala Do Re Mi Fa) - Nota MIDI 71
-    read_and_verify(14'd805, 30'h0, 1'b0, "DO_RE_MI_FA_LAST_NOTE");
+    read_and_verify(14'd805, 30'h0, 1'b0, "DO_RE_MI_FA_ULTIMA_NOTA");
 
     // Teste 6: Endereco 806 (Sentinela ao final de Do Re Mi Fa)
-    read_and_verify(14'd806, 30'h0, 1'b1, "DO_RE_MI_FA_SENTINEL_ZERO");
+    read_and_verify(14'd806, 30'h0, 1'b1, "DO_RE_MI_FA_SENTINELA_ZERO");
 
     // Teste 7: Endereco alem do conteudo (pre-inicializado com zeros)
-    read_and_verify(14'd1000, 30'h0, 1'b1, "UNPOPULATED_ADDR_ZERO");
+    read_and_verify(14'd1000, 30'h0, 1'b1, "ENDERECO_NAO_POPULADO_ZERO");
 
     #20;
     $display("--------------------------------------------------");
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL %0d TESTS PASSED SUCCESSFULLY!", tests_run);
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: FAILED WITH %0d ERRORS!", errors);
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
     $display("--------------------------------------------------");
     $finish;

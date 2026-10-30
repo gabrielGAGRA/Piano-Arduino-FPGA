@@ -1,4 +1,4 @@
-// Descrição: Indicador de erro de oitava em LEDs dedicados.
+// Descricao: Indicador de erro de oitava em LEDs dedicados.
 // Funcionamento: Compara a oitava certa da partitura com a oitava atual
 // configurada pelo usuario e acende o LED de subir ou descer.
 

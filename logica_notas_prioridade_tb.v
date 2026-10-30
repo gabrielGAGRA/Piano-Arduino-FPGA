@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para logica_notas_prioridade.
+// Descricao: Testbench auto-verificavel para logica_notas_prioridade.
 // Funcionamento: Valida reset, prioridade da ultima tecla pressionada
 // (borda de subida), fallback para a nota ativa de maior indice e desativacao.
 
@@ -34,7 +34,7 @@ module logica_notas_prioridade_tb;
   initial begin
     #WatchdogMaxNs;
     $display(
-      "\n[FATAL] %0t ns: Simulation watchdog timed out in logica_notas_prioridade_tb!",
+      "\n[FATAL] %0t ns: Watchdog da simulacao estourou em logica_notas_prioridade_tb!",
       $time
     );
     $finish;
@@ -58,7 +58,7 @@ module logica_notas_prioridade_tb;
   );
     begin
       if (nota_id !== exp_id || tem_nota !== exp_tem) begin
-        $display("[FAIL] %0t ns | %0s: esperado (id=%0d, tem=%b), obtido (id=%0d, tem=%b)",
+        $display("[FALHA] %0t ns | %0s: esperado (id=%0d, tem=%b), obtido (id=%0d, tem=%b)",
           $time, tag, exp_id, exp_tem, nota_id, tem_nota);
         errors = errors + 1;
       end
@@ -163,9 +163,7 @@ module logica_notas_prioridade_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: logica_notas_prioridade_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: logica_notas_prioridade_tb");
 
     test_reset();
     test_teclas_individuais();
@@ -173,16 +171,13 @@ module logica_notas_prioridade_tb;
     test_fallback_maior_indice();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

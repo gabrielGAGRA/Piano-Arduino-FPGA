@@ -1,4 +1,4 @@
-// Descrição: Codificador de prioridade de notas com selecao de borda.
+// Descricao: Codificador de prioridade de notas com selecao de borda.
 // Funcionamento: Prioriza notas recem-pressionadas em relacao as mantidas,
 // garantindo resposta imediata ao dedilhado do usuario.
 

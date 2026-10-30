@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o subsistema metronomo.
+// Descricao: Testbench auto-verificavel para o subsistema metronomo.
 // Funcionamento: Verifica repouso inicial, varredura angular suave com
 // beats nos extremos e retorno ao centro apos desabilitacao.
 
@@ -42,7 +42,7 @@ module metronomo_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out in metronomo_tb!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em metronomo_tb!", $time);
     $finish;
   end
 
@@ -53,7 +53,7 @@ module metronomo_tb;
     end else if (pulso_beat) begin
       beat_count <= beat_count + 1;
       if (posicao_servo !== 3'd0 && posicao_servo !== 3'd7) begin
-        $display("[FAIL] %0t ns | BEAT_EXTREMO: pulso fora de extremo! Posicao: %0d",
+        $display("[FALHA] %0t ns | BEAT_EXTREMO: pulso fora de extremo! Posicao: %0d",
           $time, posicao_servo);
         beat_err <= 1'b1;
       end
@@ -79,7 +79,7 @@ module metronomo_tb;
   );
     begin
       if (actual !== expected) begin
-        $display("[FAIL] %0t ns | %0s: esperado 3'd%0d, obtido 3'd%0d",
+        $display("[FALHA] %0t ns | %0s: esperado 3'd%0d, obtido 3'd%0d",
           $time, test_tag, expected, actual);
         errors = errors + 1;
       end
@@ -92,7 +92,7 @@ module metronomo_tb;
   );
     begin
       if (!cond) begin
-        $display("[FAIL] %0t ns | %0s: condicao esperada VERDADEIRA, obtida FALSA",
+        $display("[FALHA] %0t ns | %0s: condicao esperada VERDADEIRA, obtida FALSA",
           $time, test_tag);
         errors = errors + 1;
       end
@@ -105,7 +105,7 @@ module metronomo_tb;
   );
     begin
       if (!cond) begin
-        $display("[FATAL ASSERTION] %0t ns | %0s failed. Aborting simulation.", $time, fatal_tag);
+        $display("[ASSERT FATAL] %0t ns | %0s falhou. Abortando simulacao.", $time, fatal_tag);
         $finish;
       end
     end
@@ -173,25 +173,20 @@ module metronomo_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: metronomo_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: metronomo_tb");
 
     test_repouso();
     test_varredura_e_beats();
     test_desabilitacao();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

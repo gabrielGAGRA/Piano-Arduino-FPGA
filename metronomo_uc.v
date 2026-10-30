@@ -1,4 +1,4 @@
-// Descrição: FSM do metronomo mecanico para controle de oscilacao angular.
+// Descricao: FSM do metronomo mecanico para controle de oscilacao angular.
 // Funcionamento: Transita entre kIdle, kMoveDir e kMoveEsq gerando pulsos de beat
 // nos limites angulares do braco oscilante.
 

@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o registrador de oitava (guarda_oitava).
+// Descricao: Testbench auto-verificavel para o registrador de oitava (guarda_oitava).
 // Funcionamento: Valida inicializacao na oitava padrao (4), incremento e decremento
 // com saturacao nos limites 1 e 7, e prioridade de sinais.
 
@@ -32,7 +32,7 @@ module guarda_oitava_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em guarda_oitava_tb!", $time);
     $finish;
   end
 
@@ -79,7 +79,7 @@ module guarda_oitava_tb;
   );
     begin
       if (actual !== expected) begin
-        $display("[FAIL] %0t ns | %0s: expected 3'd%0d, got 3'd%0d",
+        $display("[FALHA] %0t ns | %0s: esperado 3'd%0d, obtido 3'd%0d",
           $time, test_tag, expected, actual);
         errors = errors + 1;
       end
@@ -140,25 +140,20 @@ module guarda_oitava_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: guarda_oitava_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: guarda_oitava_tb");
 
     test_reset_and_defaults();
     test_increment_and_saturation();
     test_decrement_and_saturation();
 
     #20;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

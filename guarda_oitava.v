@@ -1,4 +1,4 @@
-// Descrição: Registrador de oitava atual com controle de incremento e decremento.
+// Descricao: Registrador de oitava atual com controle de incremento e decremento.
 // Funcionamento: Mantem a oitava configurada entre 1 e 7, atualizando
 // mediante pulsos de borda dos botoes de subir e descer oitava.
 

@@ -1,4 +1,4 @@
-// Descrição: Memoria RAM sincrona com leitura sincrona para sintese em M10K.
+// Descricao: Memoria RAM sincrona com leitura sincrona para sintese em M10K.
 // Funcionamento: Infere blocos de memoria M10K no Cyclone V mediante leitura
 // e escrita sincronizadas na borda de subida de clock.
 

@@ -1,4 +1,4 @@
-// Descrição: Top-level do subsistema de metronomo mecanico com servomotor.
+// Descricao: Top-level do subsistema de metronomo mecanico com servomotor.
 // Funcionamento: Interliga FSM de oscilacao, datapath de temporizacao angular
 // e gerador de pulso PWM de 20 ms para controle do servomotor SG90.
 

@@ -1,4 +1,4 @@
-// Descrição: Gerenciador de transmissao de pacotes MIDI de 3 bytes via UART.
+// Descricao: Gerenciador de transmissao de pacotes MIDI de 3 bytes via UART.
 // Funcionamento: Reconcilia nota tocando e nota desejada gerando pacotes Note On
 // e Note Off transmitidos sequencialmente byte a byte por transmissor serial.
 

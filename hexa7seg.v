@@ -1,4 +1,4 @@
-// Descrição: Decodificador hexadecimal para display de 7 segmentos (catodo/anodo).
+// Descricao: Decodificador hexadecimal para display de 7 segmentos (catodo/anodo).
 // Funcionamento: Converte nibble de entrada [4:0] em segmentos a-g ativos
 // em nivel baixo com suporte a caracteres e display apagado (5'h1F).
 

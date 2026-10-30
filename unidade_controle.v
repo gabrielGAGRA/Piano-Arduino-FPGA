@@ -1,4 +1,4 @@
-// Descrição: FSM de controle principal do piano (modos Livre, Aprendizado, Gravacao, Demo).
+// Descricao: FSM de controle principal do piano (modos Livre, Aprendizado, Gravacao, Demo).
 // Funcionamento: FSM de dois processos que orquestra os 4 modos operacionais,
 // transicoes de estado por botoes e pulsos de gravacao/leitura de memoria.
 

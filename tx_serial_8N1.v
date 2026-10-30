@@ -1,4 +1,4 @@
-// Descrição: Transmissor serial assincrono UART 8N1 a 115200 bauds.
+// Descricao: Transmissor serial assincrono UART 8N1 a 115200 bauds.
 // Funcionamento: Integra gerador de baud rate por contador_m com FSM
 // e datapath de serializacao de 10/11 bits.
 

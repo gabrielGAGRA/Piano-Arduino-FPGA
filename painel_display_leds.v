@@ -1,4 +1,4 @@
-// Descrição: Painel de decodificacao de displays de 7 segmentos e LEDs do piano.
+// Descricao: Painel de decodificacao de displays de 7 segmentos e LEDs do piano.
 // Funcionamento: Decodifica status de operacao (modo, oitava, musica e volume)
 // para os displays HEX0-HEX5 e mascara os LEDs vermelhos com o sinal modulado por PWM.
 

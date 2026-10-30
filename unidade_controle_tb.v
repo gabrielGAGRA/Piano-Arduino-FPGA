@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para a Unidade de Controle (unidade_controle).
+// Descricao: Testbench auto-verificavel para a Unidade de Controle (unidade_controle).
 // Funcionamento: Valida inicializacao e transicoes entre os 4 modos:
 // 0: Livre, 1: Aprendizado, 2: Gravacao, 3: Demo e pulsos de escrita/zera/conta.
 
@@ -51,7 +51,7 @@ module unidade_controle_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out in unidade_controle_tb!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em unidade_controle_tb!", $time);
     $finish;
   end
 
@@ -79,7 +79,7 @@ module unidade_controle_tb;
   );
     begin
       if (modo_ativo !== exp_modo || estado_hex !== exp_hex) begin
-        $display("[FAIL] %0t ns | %0s: exp (m=%0d, hex=%0h), got (m=%0d, hex=%0h)",
+        $display("[FALHA] %0t ns | %0s: esperado (m=%0d, hex=%0h), obtido (m=%0d, hex=%0h)",
           $time, tag, exp_modo, exp_hex, modo_ativo, estado_hex);
         errors = errors + 1;
       end
@@ -95,7 +95,7 @@ module unidade_controle_tb;
     begin
       if (escreve_ram !== exp_escreve || zera_endereco !== exp_zera ||
           conta_endereco !== exp_conta) begin
-        $display("[FAIL] %0t ns | %0s: exp flags (w=%b, z=%b, c=%b), got (%b,%b,%b)",
+        $display("[FALHA] %0t ns | %0s: flags esperadas (w=%b, z=%b, c=%b), obtidas (%b,%b,%b)",
           $time, tag, exp_escreve, exp_zera, exp_conta,
           escreve_ram, zera_endereco, conta_endereco);
         errors = errors + 1;
@@ -222,9 +222,7 @@ module unidade_controle_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: unidade_controle_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: unidade_controle_tb");
 
     test_reset_e_modo_livre();
     test_modo_aprendizado();
@@ -232,16 +230,13 @@ module unidade_controle_tb;
     test_modo_demo_e_retorno_livre();
 
     #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

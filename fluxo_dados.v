@@ -1,4 +1,4 @@
-// Descrição: Caminho de dados (datapath) unificado do piano digital.
+// Descricao: Caminho de dados (datapath) unificado do piano digital.
 // Funcionamento: Interliga debouncers, registradores de oitava e volume,
 // banco de memorias ROM de partituras e RAM de gravacao, decodificador MIDI,
 // detector de notas por prioridade e transmissor serial UART.
@@ -505,55 +505,55 @@ module fluxo_dados #(
     .pwm_out   (pwm_out)
   );
 
-  // Metronomo (BPM por musica)
-  reg [31:0] ciclos_por_beat;
+  // Metronomo (tempo de passo em ciclos para 1/7 do beat, pre-dividido por 7)
+  reg [31:0] t_passo_metronomo_reg;
   always @* begin
-    ciclos_por_beat = 32'd30_000_000;
+    t_passo_metronomo_reg = 32'd4285714;
     case (s_sel_musica)
-      6'd0:    ciclos_por_beat = 32'd21739130; // 138 bpm (Axel_F.txt)
-      6'd1:    ciclos_por_beat = 32'd25210084; // 119 bpm (Bad_Romance.txt)
-      6'd2:    ciclos_por_beat = 32'd25641026; // 117 bpm (Beat_It.txt)
-      6'd3:    ciclos_por_beat = 32'd19607843; // 153 bpm (Careless_Whisper.txt)
-      6'd4:    ciclos_por_beat = 32'd39473684; // 76 bpm  (Clair_de_Lune.txt)
-      6'd5:    ciclos_por_beat = 32'd17341040; // 173 bpm (Clocks.txt)
-      6'd6:    ciclos_por_beat = 32'd30000000; // 100 bpm (Do_Re_Mi_Fa.txt)
-      6'd7:    ciclos_por_beat = 32'd26785714; // 112 bpm (Epitafio.txt)
-      6'd8:    ciclos_por_beat = 32'd31250000; // 96 bpm  (Fukashigi_No_Carte.txt)
-      6'd9:    ciclos_por_beat = 32'd20833333; // 144 bpm (Fur_Elise.txt)
-      6'd10:   ciclos_por_beat = 32'd24390243; // 123 bpm (Golden.txt)
-      6'd11:   ciclos_por_beat = 32'd22222222; // 135 bpm (Golden_Wind.txt)
-      6'd12:   ciclos_por_beat = 32'd41095890; // 73 bpm  (Harry_Potter.txt)
-      6'd13:   ciclos_por_beat = 32'd31578947; // 95 bpm  (Head_Over_Heels.txt)
-      6'd14:   ciclos_por_beat = 32'd40540540; // 74 bpm  (Hey_Jude.txt)
-      6'd15:   ciclos_por_beat = 32'd25423728; // 118 bpm (Homem_Aranha_1900.txt)
-      6'd16:   ciclos_por_beat = 32'd29126214; // 103 bpm (Imperial_March.txt)
-      6'd17:   ciclos_por_beat = 32'd30000000; // 100 bpm (Interestelar.txt)
-      6'd18:   ciclos_por_beat = 32'd30612245; // 98 bpm  (Korobeiniki.txt)
-      6'd19:   ciclos_por_beat = 32'd21276596; // 141 bpm (Lugar_Ao_Sol.txt)
-      6'd20:   ciclos_por_beat = 32'd11450380; // 524 bpm (Magnetic.txt)
-      6'd21:   ciclos_por_beat = 32'd30000000; // 100 bpm (Mario.txt)
-      6'd22:   ciclos_por_beat = 32'd40540540; // 74 bpm  (Minecraft_Sweden.txt)
-      6'd23:   ciclos_por_beat = 32'd13636363; // 220 bpm (Moonlight_Sonata_3mvt.txt)
-      6'd24:   ciclos_por_beat = 32'd21428571; // 140 bpm (Morning_Flower.txt)
-      6'd25:   ciclos_por_beat = 32'd26548673; // 113 bpm (Never_Gonna_Give_You_Up.txt)
-      6'd26:   ciclos_por_beat = 32'd27272727; // 110 bpm (Numb.txt)
-      6'd27:   ciclos_por_beat = 32'd25862069; // 116 bpm (Pink_Panther.txt)
-      6'd28:   ciclos_por_beat = 32'd26086956; // 115 bpm (Radio_Ga_Ga.txt)
-      6'd29:   ciclos_por_beat = 32'd21428571; // 140 bpm (Sadness_And_Sorrow.txt)
-      6'd30:   ciclos_por_beat = 32'd22222222; // 135 bpm (Someone_Like_You.txt)
-      6'd31:   ciclos_por_beat = 32'd36144578; // 83 bpm  (Star_Wars_Main_Theme.txt)
-      6'd32:   ciclos_por_beat = 32'd24000000; // 125 bpm (Sweet_Child_O_Mine.txt)
-      6'd33:   ciclos_por_beat = 32'd35714285; // 84 bpm  (Take_On_Me.txt)
-      6'd34:   ciclos_por_beat = 32'd32608695; // 92 bpm  (Trem_Das_Onze.txt)
-      6'd35:   ciclos_por_beat = 32'd25000000; // 120 bpm (Undertale_Megalovania.txt)
-      6'd36:   ciclos_por_beat = 32'd18518519; // 162 bpm (We_Are_Number_One.txt)
-      6'd37:   ciclos_por_beat = 32'd23076923; // 130 bpm (When_Love_Takes_Over.txt)
-      6'd38:   ciclos_por_beat = 32'd21428571; // 140 bpm (Zelda_Lost_Woods.txt)
-      default: ciclos_por_beat = 32'd30_000_000;
+      6'd0:    t_passo_metronomo_reg = 32'd3105590; // 138 bpm (Axel_F)
+      6'd1:    t_passo_metronomo_reg = 32'd3601440; // 119 bpm (Bad_Romance)
+      6'd2:    t_passo_metronomo_reg = 32'd3663003; // 117 bpm (Beat_It)
+      6'd3:    t_passo_metronomo_reg = 32'd2801120; // 153 bpm (Careless_Whisper)
+      6'd4:    t_passo_metronomo_reg = 32'd5639097; // 76 bpm  (Clair_de_Lune)
+      6'd5:    t_passo_metronomo_reg = 32'd2477291; // 173 bpm (Clocks)
+      6'd6:    t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Do_Re_Mi_Fa)
+      6'd7:    t_passo_metronomo_reg = 32'd3826530; // 112 bpm (Epitafio)
+      6'd8:    t_passo_metronomo_reg = 32'd4464285; // 96 bpm  (Fukashigi_No_Carte)
+      6'd9:    t_passo_metronomo_reg = 32'd2976190; // 144 bpm (Fur_Elise)
+      6'd10:   t_passo_metronomo_reg = 32'd3484320; // 123 bpm (Golden)
+      6'd11:   t_passo_metronomo_reg = 32'd3174603; // 135 bpm (Golden_Wind)
+      6'd12:   t_passo_metronomo_reg = 32'd5870841; // 73 bpm  (Harry_Potter)
+      6'd13:   t_passo_metronomo_reg = 32'd4511278; // 95 bpm  (Head_Over_Heels)
+      6'd14:   t_passo_metronomo_reg = 32'd5791505; // 74 bpm  (Hey_Jude)
+      6'd15:   t_passo_metronomo_reg = 32'd3631961; // 118 bpm (Homem_Aranha_1900)
+      6'd16:   t_passo_metronomo_reg = 32'd4160887; // 103 bpm (Imperial_March)
+      6'd17:   t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Interestelar)
+      6'd18:   t_passo_metronomo_reg = 32'd4373177; // 98 bpm  (Korobeiniki)
+      6'd19:   t_passo_metronomo_reg = 32'd3039513; // 141 bpm (Lugar_Ao_Sol)
+      6'd20:   t_passo_metronomo_reg = 32'd1635768; // 524 bpm (Magnetic)
+      6'd21:   t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Mario)
+      6'd22:   t_passo_metronomo_reg = 32'd5791505; // 74 bpm  (Minecraft_Sweden)
+      6'd23:   t_passo_metronomo_reg = 32'd1948051; // 220 bpm (Moonlight_Sonata_3mvt)
+      6'd24:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Morning_Flower)
+      6'd25:   t_passo_metronomo_reg = 32'd3792667; // 113 bpm (Never_Gonna_Give_You_Up)
+      6'd26:   t_passo_metronomo_reg = 32'd3896103; // 110 bpm (Numb)
+      6'd27:   t_passo_metronomo_reg = 32'd3694581; // 116 bpm (Pink_Panther)
+      6'd28:   t_passo_metronomo_reg = 32'd3726708; // 115 bpm (Radio_Ga_Ga)
+      6'd29:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Sadness_And_Sorrow)
+      6'd30:   t_passo_metronomo_reg = 32'd3174603; // 135 bpm (Someone_Like_You)
+      6'd31:   t_passo_metronomo_reg = 32'd5163511; // 83 bpm  (Star_Wars_Main_Theme)
+      6'd32:   t_passo_metronomo_reg = 32'd3428571; // 125 bpm (Sweet_Child_O_Mine)
+      6'd33:   t_passo_metronomo_reg = 32'd5102040; // 84 bpm  (Take_On_Me)
+      6'd34:   t_passo_metronomo_reg = 32'd4658385; // 92 bpm  (Trem_Das_Onze)
+      6'd35:   t_passo_metronomo_reg = 32'd3571428; // 120 bpm (Undertale_Megalovania)
+      6'd36:   t_passo_metronomo_reg = 32'd2645502; // 162 bpm (We_Are_Number_One)
+      6'd37:   t_passo_metronomo_reg = 32'd3296703; // 130 bpm (When_Love_Takes_Over)
+      6'd38:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Zelda_Lost_Woods)
+      default: t_passo_metronomo_reg = 32'd4285714;
     endcase
   end
 
-  assign t_passo_metronomo = ciclos_por_beat / 32'd7;
+  assign t_passo_metronomo = t_passo_metronomo_reg;
 
   // Temporizador do Modo Demonstracao (Modo 3)
   wire [7:0] s_dur_efetiva      = (s_duracao_rom == 8'd0) ? 8'd1 : s_duracao_rom;

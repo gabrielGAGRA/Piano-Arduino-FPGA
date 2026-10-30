@@ -1,4 +1,4 @@
-// Descrição: Datapath do metronomo mecanico com contador de passo e registrador angular.
+// Descricao: Datapath do metronomo mecanico com contador de passo e registrador angular.
 // Funcionamento: Conta ciclos correspondentes ao tempo do passo angular e atualiza
 // a posicao discreta de 0 a 7 do braco do metronomo.
 

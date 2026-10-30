@@ -1,4 +1,4 @@
-// Descrição: Detector de borda de subida com saida de 1 periodo de clock.
+// Descricao: Detector de borda de subida com saida de 1 periodo de clock.
 // Funcionamento: Pipeline de 2 registradores em cascata que detecta transicao 0->1
 // no sinal de entrada e gera pulso de 1 ciclo sincronizado com o clock local.
 

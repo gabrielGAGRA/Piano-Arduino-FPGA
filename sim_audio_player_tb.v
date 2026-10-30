@@ -1,4 +1,4 @@
-// Descrição: Testbench de co-simulacao de audio para piano_top.
+// Descricao: Testbench de co-simulacao de audio para piano_top.
 // Funcionamento: Executa piano_top acelerado, monitora transmissao UART 8N1
 // e emite eventos formatados MIDI_EVENT:<tempo_ms>:<status>:<nota>:<velocity> para o host.
 

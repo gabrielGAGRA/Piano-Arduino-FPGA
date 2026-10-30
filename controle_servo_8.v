@@ -1,4 +1,4 @@
-// Descrição: Controlador de largura de pulso para servomotor com 8 posicoes.
+// Descricao: Controlador de largura de pulso para servomotor com 8 posicoes.
 // Funcionamento: Gera sinal periodico de 20 ms via modulacao PWM de 50 Hz com
 // 8 larguras de pulso calibradas para varredura angular restrita de 30 graus (~90 graus no centro).
 // A largura e atualizada no rollover do contador para prevenir glitches durante operacao.

@@ -1,4 +1,4 @@
-// Descrição: Sincronizador de sinal assincrono com 2 estagios de flip-flops.
+// Descricao: Sincronizador de sinal assincrono com 2 estagios de flip-flops.
 // Funcionamento: Captura um sinal assincrono em dois registradores em cascata
 // para mitigar metaestabilidade na transicao para o dominio de clock.
 

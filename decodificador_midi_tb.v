@@ -1,4 +1,4 @@
-// Descrição: Testbench auto-verificavel para o decodificador MIDI (decodificador_midi).
+// Descricao: Testbench auto-verificavel para o decodificador MIDI (decodificador_midi).
 // Funcionamento: Valida a traducao de numeros de notas MIDI (24..107) para oitava,
 // sustenido e ID da nota, alem de testar valores fora de escala e bijecao com o codificador.
 
@@ -34,7 +34,7 @@ module decodificador_midi_tb;
 
   initial begin
     #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out!", $time);
+    $display("\n[FATAL] %0t ns: Watchdog da simulacao estourou em decodificador_midi_tb!", $time);
     $finish;
   end
 
@@ -52,7 +52,7 @@ module decodificador_midi_tb;
       if ((oitava !== exp_oitava) || (sustenido !== exp_sustenido) ||
           (nota_id !== exp_nota_id)) begin
         $display(
-          "[FAIL] %0t ns | %0s (midi=%0d): exp (%0d,%0b,%0d), got (%0d,%0b,%0d)",
+          "[FALHA] %0t ns | %0s (midi=%0d): esperado (%0d,%0b,%0d), obtido (%0d,%0b,%0d)",
           $time, test_tag, in_midi,
           exp_oitava, exp_sustenido, exp_nota_id,
           oitava, sustenido, nota_id
@@ -109,7 +109,7 @@ module decodificador_midi_tb;
 
           #5;
           if (midi_roundtrip !== m) begin
-            $display("[FAIL ROUNDTRIP] %0t ns | midi=%0d -> decoded -> enc_midi=%0d",
+            $display("[FALHA DE IDA E VOLTA] %0t ns | midi=%0d -> decodificado -> enc_midi=%0d",
               $time, m, midi_roundtrip);
             errors = errors + 1;
           end
@@ -119,24 +119,19 @@ module decodificador_midi_tb;
   endtask
 
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: decodificador_midi_tb");
-    $display("========================================");
+    $display("INICIANDO SIMULACAO: decodificador_midi_tb");
 
     test_out_of_range();
     test_all_84_notes_and_bijection();
 
     #20;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
+    $display("RESUMO DOS TESTES");
+    $display("Testes executados: %0d", tests_run);
+    $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
+      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
     end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
+      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
     end
 
     $finish;

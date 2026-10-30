@@ -1,4 +1,4 @@
-// Descrição: Decodificador para exibir simbolo sustenido '#' em display 7 seg.
+// Descricao: Decodificador para exibir simbolo sustenido '#' em display 7 seg.
 // Funcionamento: Ativa segmentos especificos (ativo em nivel baixo) para
 // desenhar o glifo '#' quando sustenido estiver em nivel alto.
 

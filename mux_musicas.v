@@ -1,4 +1,4 @@
-// Descrição: Multiplexador 40 para 1 para selecao de dados das musicas (ROM/RAM).
+// Descricao: Multiplexador 40 para 1 para selecao de dados das musicas (ROM/RAM).
 // Funcionamento: Roteia o barramento de dados de 30 bits correspondente
 // ao indice da musica selecionada (0 a 38 na ROM, 39 na RAM).
 

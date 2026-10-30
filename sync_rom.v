@@ -1,14 +1,14 @@
-// Descrição: Memoria ROM sincrona inicializavel por arquivo binario.
-// Funcionamento: Infere M10K ROM sincrona populada com partituras via
-// diretiva $readmemb durante elaboracao e simulacao.
+// Descricao: Memoria ROM sincrona inferida em M10K com suporte a hex ou binario.
+// Funcionamento: Carrega arquivo de inicializacao via $readmemh ou $readmemb durante elaboracao.
 
 `timescale 1ns / 1ps
 `default_nettype none
 
 module sync_rom #(
   parameter DataWidth = 30,
-  parameter AddrWidth = 10,
-  parameter InitFile  = "musica0.bin"
+  parameter AddrWidth = 14,
+  parameter InitFile  = "music/partituras.hex",
+  parameter HexMode   = 1
 )(
   input  wire                 clk,
   input  wire [AddrWidth-1:0] address,
@@ -22,7 +22,11 @@ module sync_rom #(
     for (i = 0; i < (2**AddrWidth); i = i + 1) begin
       rom[i] = {DataWidth{1'b0}};
     end
-    $readmemb(InitFile, rom);
+    if (HexMode) begin
+      $readmemh(InitFile, rom);
+    end else begin
+      $readmemb(InitFile, rom);
+    end
   end
 
   always @(posedge clk) begin

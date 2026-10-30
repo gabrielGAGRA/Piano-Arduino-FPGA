@@ -262,91 +262,28 @@ module fluxo_dados #(
     .q    (s_endereco_ram)
   );
 
-  wire [29:0] d_ram0, d_ram1, d_ram2, d_ram3, d_ram4, d_ram5, d_ram6, d_ram7;
-  wire [29:0] d_ram8, d_ram9, d_ram10, d_ram11, d_ram12, d_ram13, d_ram14;
-  wire [29:0] d_ram15, d_ram16, d_ram17, d_ram18, d_ram19, d_ram20, d_ram21;
-  wire [29:0] d_ram22, d_ram23, d_ram24, d_ram25, d_ram26, d_ram27, d_ram28;
-  wire [29:0] d_ram29, d_ram30, d_ram31, d_ram32, d_ram33, d_ram34, d_ram35;
-  wire [29:0] d_ram36, d_ram37, d_ram38;
+  localparam RomAddrWidth = 14;
+  wire [RomAddrWidth-1:0] s_offset_base_rom;
+  wire [RomAddrWidth-1:0] s_rom_address = s_offset_base_rom + {4'd0, s_endereco_ram};
+  wire [29:0]             d_rom_partituras;
 
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Axel_F.txt"))
-    sync_rom_0 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram0));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Bad_Romance.txt"))
-    sync_rom_1 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram1));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Beat_It.txt"))
-    sync_rom_2 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram2));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Careless_Whisper.txt"))
-    sync_rom_3 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram3));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Clair_de_Lune.txt"))
-    sync_rom_4 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram4));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Clocks.txt"))
-    sync_rom_5 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram5));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Do_Re_Mi_Fa.txt"))
-    sync_rom_6 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram6));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Epitafio.txt"))
-    sync_rom_7 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram7));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Fukashigi_No_Carte.txt"))
-    sync_rom_8 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram8));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Fur_Elise.txt"))
-    sync_rom_9 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram9));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Golden.txt"))
-    sync_rom_10 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram10));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Golden_Wind.txt"))
-    sync_rom_11 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram11));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Harry_Potter.txt"))
-    sync_rom_12 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram12));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Head_Over_Heels.txt"))
-    sync_rom_13 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram13));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Hey_Jude.txt"))
-    sync_rom_14 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram14));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Homem_Aranha_1900.txt"))
-    sync_rom_15 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram15));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Imperial_March.txt"))
-    sync_rom_16 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram16));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Interestelar.txt"))
-    sync_rom_17 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram17));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Korobeiniki.txt"))
-    sync_rom_18 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram18));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Lugar_Ao_Sol.txt"))
-    sync_rom_19 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram19));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Magnetic.txt"))
-    sync_rom_20 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram20));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Mario.txt"))
-    sync_rom_21 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram21));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Minecraft_Sweden.txt"))
-    sync_rom_22 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram22));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Moonlight_Sonata_3mvt.txt"))
-    sync_rom_23 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram23));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Morning_Flower.txt"))
-    sync_rom_24 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram24));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Never_Gonna_Give_You_Up.txt"))
-    sync_rom_25 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram25));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Numb.txt"))
-    sync_rom_26 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram26));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Pink_Panther.txt"))
-    sync_rom_27 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram27));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Radio_Ga_Ga.txt"))
-    sync_rom_28 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram28));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Sadness_And_Sorrow.txt"))
-    sync_rom_29 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram29));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Someone_Like_You.txt"))
-    sync_rom_30 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram30));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Star_Wars_Main_Theme.txt"))
-    sync_rom_31 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram31));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Sweet_Child_O_Mine.txt"))
-    sync_rom_32 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram32));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Take_On_Me.txt"))
-    sync_rom_33 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram33));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Trem_Das_Onze.txt"))
-    sync_rom_34 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram34));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Undertale_Megalovania.txt"))
-    sync_rom_35 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram35));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/We_Are_Number_One.txt"))
-    sync_rom_36 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram36));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/When_Love_Takes_Over.txt"))
-    sync_rom_37 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram37));
-  sync_rom #(.DataWidth(30), .AddrWidth(10), .InitFile("music/Zelda_Lost_Woods.txt"))
-    sync_rom_38 (.clk(clk), .address(s_endereco_ram), .data_out(d_ram38));
+  tabela_offsets_partituras #(
+    .AddrWidth(RomAddrWidth)
+  ) tabela_offsets_partituras_inst (
+    .musica_id(mux_sel),
+    .base_addr(s_offset_base_rom)
+  );
+
+  sync_rom #(
+    .DataWidth(30),
+    .AddrWidth(RomAddrWidth),
+    .InitFile ("music/partituras.hex"),
+    .HexMode  (1)
+  ) sync_rom_partituras (
+    .clk     (clk),
+    .address (s_rom_address),
+    .data_out(d_rom_partituras)
+  );
 
   // Temporizador de Gravacao (Modo 2)
   wire [6:0] s_nota_midi_usuario;
@@ -422,21 +359,7 @@ module fluxo_dados #(
     .data_out(d_ram39)
   );
 
-  wire [29:0] s_dado_ram;
-  mux_musicas mux_musicas_inst (
-    .sel(mux_sel),
-    .d0 (d_ram0),  .d1 (d_ram1),  .d2 (d_ram2),  .d3 (d_ram3),
-    .d4 (d_ram4),  .d5 (d_ram5),  .d6 (d_ram6),  .d7 (d_ram7),
-    .d8 (d_ram8),  .d9 (d_ram9),  .d10(d_ram10), .d11(d_ram11),
-    .d12(d_ram12), .d13(d_ram13), .d14(d_ram14), .d15(d_ram15),
-    .d16(d_ram16), .d17(d_ram17), .d18(d_ram18), .d19(d_ram19),
-    .d20(d_ram20), .d21(d_ram21), .d22(d_ram22), .d23(d_ram23),
-    .d24(d_ram24), .d25(d_ram25), .d26(d_ram26), .d27(d_ram27),
-    .d28(d_ram28), .d29(d_ram29), .d30(d_ram30), .d31(d_ram31),
-    .d32(d_ram32), .d33(d_ram33), .d34(d_ram34), .d35(d_ram35),
-    .d36(d_ram36), .d37(d_ram37), .d38(d_ram38), .d39(d_ram39),
-    .out(s_dado_ram)
-  );
+  wire [29:0] s_dado_ram = (mux_sel == 6'd39) ? d_ram39 : d_rom_partituras;
 
   // Controle de fim da gravacao na RAM
   reg       grav_tem_dados_reg;

@@ -17,6 +17,7 @@ Rules Summary:
      - FILE_HEADER_COMMENT_MISSING (WARNING): Every file must start with a descriptive header comment.
      - TAB_CHARACTER (WARNING): Tabs are prohibited; use spaces.
      - TRAILING_WHITESPACE (WARNING): Trailing whitespace at end of lines.
+     - LINE_ENDING_CRLF (WARNING): CRLF line endings (\r\n) prohibited; use POSIX LF (\n).
      - LINE_TOO_LONG (WARNING): Wrap code at 100 characters per line.
      - INDENTATION_STEP (WARNING): Indentation must be in multiples of 2 spaces.
      - REDUNDANT_SEMICOLON (WARNING): Consecutive semicolons (;;).
@@ -60,11 +61,19 @@ Rules Summary:
      - NESTED_TERNARY_PARENS (WARNING): Nested ternaries must be parenthesized.
      - REDUCTION_OPERATOR_PARENS (WARNING): Reduction ops preceded by other ops must be parenthesized.
      - TESTBENCH_PLUSARG_TEST (WARNING): $test$plusargs prohibited; use $value$plusargs.
+     - TESTBENCH_HAS_PORTS (ERROR): Testbench modules must not declare ports.
+     - TESTBENCH_MISSING_FINISH (ERROR): Testbench must contain $finish.
+     - TESTBENCH_STOP_PROHIBITED (WARNING): $stop is prohibited in automated testbenches; use $finish.
 
   5. Intel Cyclone V Hardware Invariants:
      - M10K_ASYNC_READ_PROHIBITED (ERROR): Synchronous reads required for M10K block RAM.
      - CLOCK_GATING_LOGIC_PROHIBITED (ERROR): Gated clocks (clk & en) prohibited; use clock enables.
      - INTERNAL_TRISTATE_PROHIBITED (ERROR): Internal 1'bz prohibited (allowed only in top-level inout pins).
+      - CASE_MISSING_DEFAULT (ERROR): Every case/casez must have a default branch.
+      - TOP_LEVEL_LOGIC_PROHIBITED (ERROR): *_top.v must not contain always/initial blocks.
+
+Auto-fix (default on; disable with --no-fix): tabs, trailing whitespace, CRLF to LF,
+  ';;' and missing final newline are rewritten in place before linting.
 
 Waivers:
   Any rule can be waived via an inline comment on the same or immediately preceding line:
@@ -304,7 +313,7 @@ class VerilogLinter:
       return violations
 
     try:
-      raw_source = file_path.read_text(encoding="utf-8", errors="replace")
+      raw_source = file_path.read_bytes().decode("utf-8", errors="replace")
     except Exception as e:
       violations.append(
           LintViolation(
@@ -320,6 +329,18 @@ class VerilogLinter:
 
     waivers = parse_waivers(raw_source)
     lines = raw_source.splitlines()
+
+    if "\r\n" in raw_source:
+      self._add(
+          violations,
+          waivers,
+          "LINE_ENDING_CRLF",
+          file_path,
+          1,
+          1,
+          "CRLF line endings (\\r\\n) found. Use POSIX LF (\\n).",
+          severity=Severity.WARNING,
+      )
     masked_source = mask_comments_and_strings(raw_source)
     masked_lines = masked_source.splitlines()
     is_tb = (
@@ -347,6 +368,13 @@ class VerilogLinter:
     self._check_cyclone_v_invariants(
         file_path, masked_lines, lines, waivers, violations
     )
+    self._check_case_default_and_top_logic(
+        file_path, masked_lines, lines, waivers, violations
+    )
+    if is_tb:
+      self._check_testbench_structure(
+          file_path, masked_lines, lines, waivers, violations
+      )
 
     if file_path.suffix == ".v":
       if self.run_iverilog:
@@ -1638,6 +1666,105 @@ class VerilogLinter:
             raw_lines[idx],
         )
 
+  def _check_case_default_and_top_logic(
+      self,
+      file_path: Path,
+      masked_lines: List[str],
+      raw_lines: List[str],
+      waivers: Dict[int, Set[str]],
+      violations: List[LintViolation],
+  ) -> None:
+    stack: List[Tuple[int, bool]] = []
+    for idx, line in enumerate(masked_lines):
+      for m in re.finditer(r"\b(case|casez|endcase|default)\b", line):
+        tok = m.group(1)
+        if tok in ("case", "casez"):
+          stack.append((idx, False))
+        elif tok == "default" and stack:
+          stack[-1] = (stack[-1][0], True)
+        elif tok == "endcase" and stack:
+          start_idx, has_default = stack.pop()
+          if not has_default:
+            self._add(
+                violations,
+                waivers,
+                "CASE_MISSING_DEFAULT",
+                file_path,
+                start_idx + 1,
+                1,
+                "case statement has no 'default:' branch.",
+                raw_lines[start_idx],
+            )
+
+    if file_path.suffix == ".v" and file_path.stem.lower().endswith("_top"):
+      for idx, line in enumerate(masked_lines):
+        m = re.search(r"\b(always|initial)\b", line)
+        if m:
+          self._add(
+              violations,
+              waivers,
+              "TOP_LEVEL_LOGIC_PROHIBITED",
+              file_path,
+              idx + 1,
+              m.start() + 1,
+              "Top-level wrapper must contain only wiring and instantiations;"
+              " move procedural logic into a submodule.",
+              raw_lines[idx],
+          )
+
+  def _check_testbench_structure(
+      self,
+      file_path: Path,
+      masked_lines: List[str],
+      raw_lines: List[str],
+      waivers: Dict[int, Set[str]],
+      violations: List[LintViolation],
+  ) -> None:
+    source_text = "\n".join(masked_lines)
+
+    # 1. Testbench module must not declare ports
+    re_tb_ports = re.compile(r"\bmodule\s+[a-zA-Z0-9_]+\s*\(([^)]+)\)\s*;")
+    m_ports = re_tb_ports.search(source_text)
+    if m_ports and m_ports.group(1).strip():
+      line_num = source_text[: m_ports.start(1)].count("\n") + 1
+      self._add(
+          violations,
+          waivers,
+          "TESTBENCH_HAS_PORTS",
+          file_path,
+          line_num,
+          1,
+          "Testbench modules must not declare input/output ports (use 'module <name>;').",
+          raw_lines[line_num - 1] if line_num <= len(raw_lines) else "",
+      )
+
+    # 2. Testbench must contain $finish
+    if not re.search(r"\$finish\b", source_text):
+      self._add(
+          violations,
+          waivers,
+          "TESTBENCH_MISSING_FINISH",
+          file_path,
+          1,
+          1,
+          "Testbench must contain $finish to ensure deterministic termination.",
+      )
+
+    # 3. $stop prohibited in automated testbenches
+    for idx, line in enumerate(masked_lines):
+      if "$stop" in line:
+        self._add(
+            violations,
+            waivers,
+            "TESTBENCH_STOP_PROHIBITED",
+            file_path,
+            idx + 1,
+            line.find("$stop") + 1,
+            "$stop is prohibited in automated testbenches (causes batch runs to hang); use $finish.",
+            raw_lines[idx],
+            severity=Severity.WARNING,
+        )
+
   def _run_iverilog_check(
       self,
       file_path: Path,
@@ -1779,6 +1906,32 @@ class VerilogLinter:
       pass
 
 
+def fix_source(source: str) -> str:
+  """Auto-fixes tabs, trailing whitespace, CRLF to LF, duplicate semicolons, final newline."""
+  masked = mask_comments_and_strings(source)
+  out: List[str] = []
+  for raw, m_line in zip(
+      source.splitlines(keepends=True), masked.splitlines(keepends=True)
+  ):
+    eol = raw[len(raw.rstrip("\r\n")):]
+    body = raw[: len(raw) - len(eol)]
+    m_body = m_line[: len(body)]
+    # Duplicate semicolons (code only; keep for(;;) headers intact).
+    if ";;" in m_body and not re.search(r"\bfor\s*\(", m_body):
+      chars = list(body)
+      for m in reversed(list(re.finditer(r";{2,}", m_body))):
+        chars[m.start() + 1 : m.end()] = []
+      body = "".join(chars)
+    indent = body[: len(body) - len(body.lstrip(" \t"))]
+    body = indent.replace("\t", "  ") + body[len(indent):]
+    line_ending = "\n" if eol else ""
+    out.append(body.rstrip() + line_ending)
+  result = "".join(out)
+  if result and not result.endswith("\n"):
+    result += "\n"
+  return result
+
+
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
       description=(
@@ -1811,6 +1964,15 @@ def parse_args() -> argparse.Namespace:
       action="store_true",
       default=True,
       help="Fail (exit 1) on errors",
+  )
+  parser.add_argument(
+      "--fix",
+      action=argparse.BooleanOptionalAction,
+      default=True,
+      help=(
+          "Auto-fix tabs, trailing whitespace, CRLF to LF, ';;' and missing"
+          " final newline before linting (disable with --no-fix)"
+      ),
   )
   return parser.parse_args()
 
@@ -1850,6 +2012,20 @@ def main() -> int:
 
   total_errors = 0
   total_warnings = 0
+
+  if args.fix:
+    fixed = 0
+    for file_path in filtered_files:
+      if file_path.suffix not in (".v", ".vh"):
+        continue
+      original = file_path.read_bytes().decode("utf-8", errors="replace")
+      updated = fix_source(original)
+      if updated != original:
+        file_path.write_bytes(updated.encode("utf-8"))
+        fixed += 1
+        print(f"Fixed: {file_path}")
+    if fixed:
+      print()
 
   for file_path in filtered_files:
     violations = linter.lint_file(file_path)

@@ -267,6 +267,184 @@ def encode_rom_word(pausa_ticks: int, dur_ticks: int, velocity: int, note_midi: 
     return f"{pausa_clamped:08b}{dur_clamped:08b}{vel_clamped:07b}{note_clamped:07b}"
 
 
+def encode_rom_word_hex(pausa_ticks: int, dur_ticks: int, velocity: int, note_midi: int) -> str:
+    """Formata uma palavra de 30 bits `{pausa[7:0], duracao[7:0], velocity[6:0], nota[6:0]}` em hexadecimal (8 dígitos)."""
+    pausa_clamped = max(0, min(255, int(pausa_ticks)))
+    dur_clamped = max(1, min(255, int(dur_ticks)))
+    vel_clamped = max(1, min(127, int(velocity)))
+    note_clamped = max(0, min(127, int(note_midi)))
+    val = (pausa_clamped << 22) | (dur_clamped << 14) | (vel_clamped << 7) | note_clamped
+    return f"{val:08x}"
+
+
+SONG_CATALOG = [
+    "Axel_F",                  # 0
+    "Bad_Romance",             # 1
+    "Beat_It",                 # 2
+    "Careless_Whisper",        # 3
+    "Clair_de_Lune",           # 4
+    "Clocks",                  # 5
+    "Do_Re_Mi_Fa",             # 6
+    "Epitafio",                # 7
+    "Fukashigi_No_Carte",      # 8
+    "Fur_Elise",               # 9
+    "Golden",                  # 10
+    "Golden_Wind",             # 11
+    "Harry_Potter",            # 12
+    "Head_Over_Heels",         # 13
+    "Hey_Jude",                # 14
+    "Homem_Aranha_1900",       # 15
+    "Imperial_March",          # 16
+    "Interestelar",            # 17
+    "Korobeiniki",             # 18
+    "Lugar_Ao_Sol",            # 19
+    "Magnetic",                # 20
+    "Mario",                   # 21
+    "Minecraft_Sweden",        # 22
+    "Moonlight_Sonata_3mvt",   # 23
+    "Morning_Flower",          # 24
+    "Never_Gonna_Give_You_Up", # 25
+    "Numb",                    # 26
+    "Pink_Panther",            # 27
+    "Radio_Ga_Ga",             # 28
+    "Sadness_And_Sorrow",      # 29
+    "Super_Idol",              # 30
+    "Susanne",                 # 31
+    "Sweet_Child_O_Mine",      # 32
+    "Take_On_Me",              # 33
+    "Trem_Das_Onze",           # 34
+    "Undertale_Megalovania",   # 35
+    "We_Are_Number_One",       # 36
+    "When_Love_Takes_Over",    # 37
+    "Zelda_Lost_Woods",        # 38
+]
+
+
+def extract_melody_words(midi_path: str, as_hex: bool = True) -> List[str]:
+    """Extrai as palavras codificadas da melodia sem padding de 1024 zeros."""
+    timed_events = parse_smf_events(midi_path)
+    sustained_notes = extract_sustained_notes(timed_events)
+    melody = select_monophonic_melody(sustained_notes, max_notes=MAX_NOTES)
+
+    words: List[str] = []
+    for i, n in enumerate(melody):
+        t_start = n["t_start"]
+        raw_sustain_dur = max(TICK_SECONDS, n["t_end_effective"] - t_start)
+
+        if i + 1 < len(melody):
+            delta_t = max(TICK_SECONDS, melody[i + 1]["t_start"] - t_start)
+            dur_s = min(raw_sustain_dur, delta_t)
+            pausa_s = max(0.0, delta_t - dur_s)
+        else:
+            dur_s = raw_sustain_dur
+            pausa_s = 0.0
+
+        dur_ticks = max(1, min(255, int(round(dur_s / TICK_SECONDS))))
+        pausa_ticks = max(0, min(255, int(round(pausa_s / TICK_SECONDS))))
+        vel = max(1, min(127, n["vel"]))
+        note_midi = clamp_midi_note(n["note"])
+
+        if as_hex:
+            words.append(encode_rom_word_hex(pausa_ticks, dur_ticks, vel, note_midi))
+        else:
+            words.append(encode_rom_word(pausa_ticks, dur_ticks, vel, note_midi))
+
+    return words
+
+
+def generate_scale_words(as_hex: bool = True) -> List[str]:
+    """Gera palavras da escala Dó Maior (C4..B4) sem padding."""
+    scale_notes = [60, 62, 64, 65, 67, 69, 71]
+    if as_hex:
+        return [encode_rom_word_hex(pausa_ticks=5, dur_ticks=40, velocity=100, note_midi=n) for n in scale_notes]
+    return [encode_rom_word(pausa_ticks=5, dur_ticks=40, velocity=100, note_midi=n) for n in scale_notes]
+
+
+def build_mega_rom(
+    music_dir: str = "music",
+    verilog_out_dir: str = ".",
+    addr_width: int = 14,
+) -> Tuple[str, str]:
+    """
+    Constrói a Mega-ROM contígua `music/partituras.hex` e gera o módulo
+    Verilog `tabela_offsets_partituras.v` compatível com o estilo Verilog-2001 do projeto.
+    """
+    sentinel_hex = "00000000"
+    rom_words: List[str] = [sentinel_hex]  # Endereço 0 é sentinela para slots vazios
+    offsets: Dict[int, int] = {}
+
+    for idx, song_name in enumerate(SONG_CATALOG):
+        song_words: List[str] = []
+        midi_candidates = [
+            os.path.join(music_dir, f"{song_name}.mid"),
+            os.path.join(music_dir, f"{song_name.lower()}.mid"),
+        ]
+        if song_name == "Clair_de_Lune":
+            midi_candidates.insert(0, os.path.join(music_dir, "debussy-clair-de-lune.mid"))
+
+        found_midi = next((c for c in midi_candidates if os.path.exists(c)), None)
+
+        if found_midi:
+            song_words = extract_melody_words(found_midi, as_hex=True)
+        elif song_name == "Do_Re_Mi_Fa":
+            song_words = generate_scale_words(as_hex=True)
+
+        if song_words:
+            start_addr = len(rom_words)
+            offsets[idx] = start_addr
+            rom_words.extend(song_words)
+            rom_words.append(sentinel_hex)  # Sentinela de fim de música
+        else:
+            offsets[idx] = 0  # Aponta para endereço 0 (sentinela)
+
+    # Escreve partituras.hex
+    hex_path = os.path.join(music_dir, "partituras.hex")
+    with open(hex_path, "w", encoding="ascii", newline="\n") as f:
+        for w in rom_words:
+            f.write(f"{w}\n")
+
+    # Gera tabela_offsets_partituras.v
+    verilog_path = os.path.join(verilog_out_dir, "tabela_offsets_partituras.v")
+    lines_v = [
+        "// Descricao: Tabela combinacional de offsets de partituras para a Mega-ROM.",
+        "// Funcionamento: Mapeia o indice da musica (0..38) no endereco base dentro da Mega-ROM.",
+        "",
+        "`timescale 1ns / 1ps",
+        "`default_nettype none",
+        "",
+        "module tabela_offsets_partituras #(",
+        f"  parameter AddrWidth = {addr_width}",
+        ")(",
+        "  input  wire [5:0]           musica_id,",
+        "  output reg  [AddrWidth-1:0] base_addr",
+        ");",
+        "",
+        "  always @* begin",
+        "    base_addr = {AddrWidth{1'b0}};",
+        "    case (musica_id)",
+    ]
+
+    for idx, song_name in enumerate(SONG_CATALOG):
+        base_addr = offsets.get(idx, 0)
+        lines_v.append(f"      6'd{idx}: base_addr = {addr_width}'d{base_addr}; // {song_name}")
+
+    lines_v.extend([
+        "      default: base_addr = {AddrWidth{1'b0}};",
+        "    endcase",
+        "  end",
+        "",
+        "endmodule",
+        "",
+        "`default_nettype wire",
+        "",
+    ])
+
+    with open(verilog_path, "w", encoding="ascii", newline="\n") as f:
+        f.write("\n".join(lines_v))
+
+    return hex_path, verilog_path
+
+
 def convert_midi_to_rom_lines(midi_path: str) -> List[str]:
     """Converte um arquivo `.mid` nas 1024 linhas binárias de 30 bits para `$readmemb`."""
     timed_events = parse_smf_events(midi_path)
@@ -316,7 +494,7 @@ def write_rom_file(path: str, lines: List[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(Descrição="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA.")
+    parser = argparse.ArgumentParser(description="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA.")
     parser.add_argument(
         "--midi",
         default="music/debussy-clair-de-lune.mid",
@@ -329,6 +507,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # 1. Gera compatibilidade legada individual (.txt)
     clair_lines = convert_midi_to_rom_lines(args.midi)
     clair_path = os.path.join(args.out_dir, "Clair_de_Lune.txt")
     write_rom_file(clair_path, clair_lines)
@@ -343,8 +522,12 @@ def main() -> None:
         elif not os.path.exists(fpath):
             write_rom_file(fpath, clair_lines)
 
+    # 2. Gera Mega-ROM contígua (partituras.hex) e tabela de offsets (tabela_offsets_partituras.v)
+    hex_path, verilog_path = build_mega_rom(music_dir=args.out_dir, verilog_out_dir=".")
+
     active_count = sum(1 for ln in clair_lines if int(ln[-7:], 2) != 0)
-    print(f"[OK] Gerado {clair_path} com {active_count} notas melódicas (com sustain CC64) e {ROM_DEPTH} linhas de 30 bits.")
+    print(f"[OK] Gerado legado {clair_path} com {active_count} notas melódicas.")
+    print(f"[OK] Gerado Mega-ROM: {hex_path} e tabela de offsets: {verilog_path}")
 
 
 if __name__ == "__main__":

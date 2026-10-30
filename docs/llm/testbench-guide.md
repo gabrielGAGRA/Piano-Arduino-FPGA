@@ -1,252 +1,107 @@
-# Testbench Verification & Simulation Guide
+# Verilog-2001 Testbench & Simulation Standards
 
-## 1. Golden Rules of RTL Verification
+## Conformance Notation
+* ***must*** / ***must not***: Mandatory requirement / absolute prohibition.
+---
 
-1. **Self-Checking (Automated Pass/Fail):** Testbenches MUST NOT require manual waveform inspection to determine success. Automated checks with assertions and an error counter MUST report unambiguous `PASSED` or `FAILED` banners.
-2. **Minimum Testing Requirements (Designer Tests):**
-   - The design block must elaborate cleanly with zero compiler or linter errors.
-   - The design block must come out of reset with NO `X` (unknown) values on any output port.
-   - At least one full transaction must be stimulated and observed correctly.
-3. **Test Independence & Isolation:** Tests must be repeatable and independent. The failure or execution of one scenario must not corrupt subsequent scenarios. Always execute a common setup/reset routine before each test scenario.
-4. **Informative Failure Diagnostics & Radix Prefixes:** When an assertion fails, print full diagnostic context: simulation time (`$time`), test scenario name, expected value, and actual received value. Printed numbers must be prefixed with their radix (`0x` for hex, `0b` for binary, decimal without radix).
-5. **Non-Fatal (`expect_*`) vs. Fatal (`assert_*`) Checks:**
-   - **`expect_*` (Non-Fatal):** Logs the mismatch, increments the error tally, and allows execution to continue so multiple bugs can be detected in a single run.
-   - **`assert_*` (Fatal):** Used for structural prerequisites (successful reset, handshake synchronization, memory initialization). Aborts simulation immediately if violated to prevent cascading false failures.
-6. **Deterministic Termination & Watchdog:** Every testbench MUST end with `$finish`. A parallel watchdog timer MUST run to terminate simulation if a state machine or handshake deadlocks.
-7. **Parameter Overrides for Speed:** In simulation, override physical timing parameters (e.g., set `DebounceCycles = 5` instead of `50000`) so tests complete in milliseconds.
-8. **Plusarg Values:** When using runtime arguments, use `$value$plusargs` with an explicit value assigned (e.g., `+seed=42`). Do not use `$test$plusargs`.
+## 1. File Structure & Instantiation
+- Testbench files ***must*** be named `<module>_tb.v` and contain exactly one module named `<module>_tb`.
+- Testbench modules ***must not*** declare ports (`module <module>_tb;`).
+- Files ***must*** declare `` `timescale 1ns/1ps `` and `` `default_nettype none `` before the module, and `` `default_nettype wire `` after `endmodule`.
+- The Unit Under Test (UUT) ***must*** be instantiated with named ports (`.port(sig)`) and named `dut` or `uut`.
+- Physical timing parameters (e.g., debounce count, prescalers) ***must*** be overridden in simulation to small values to complete execution in milliseconds.
+
+## 2. Testbench Architecture & Execution
+- Testbenches ***must*** be self-checking. Manual waveform inspection ***must not*** be required to determine pass/fail.
+- Testbenches ***must*** declare integer counters: `errors = 0` and `tests_run = 0`.
+- Testbenches ***must*** terminate deterministically via `$finish;`. `$stop;` ***must not*** be used as simulation completion.
+- A concurrent watchdog timer ***must*** be declared in an independent `initial` block to abort deadlocked simulations with `$finish;`.
+- Execution ***must*** print an unambiguous summary banner containing `ALL TESTS PASSED` when `errors == 0`, or `TESTBENCH FAILED` with error count when `errors > 0`.
+- `$test$plusargs` ***must not*** use; `$value$plusargs` ***must*** be used when reading runtime plusargs.
+
+## 3. Timing, Driving & Sampling
+- Clock generation ***must*** use `initial clk = 1'b0;` and `always #(Period/2) clk = ~clk;`.
+- Synchronous inputs to the DUT ***must*** be driven on the inactive clock edge (`@(negedge clk)`) or with an explicit delta delay after edge (`@(posedge clk); #1;`) to prevent simulator race conditions.
+- Output checks ***must*** be sampled when signals are stable (`@(negedge clk)` or after `#1` propagation delay).
+- High-impedance (`Z`) and unknown (`X`) states ***must*** be checked using identity operators (`===`, `!==`).
+
+## 4. Reset & Verification Fixtures
+- Test suites ***must*** declare a dedicated `setup` or `reset_dut` task called before each discrete test scenario.
+- The `setup` task ***must*** initialize all inputs to inactive values, toggle reset synchronously, and verify that outputs do not remain `X` or `Z`.
+- Discrete verification scenarios ***must*** be isolated in dedicated tasks (`test_<scenario>`) to prevent failure cascades.
+- Non-fatal checks (`expect_*`) ***must*** increment `errors` and continue simulation. Structural failures (reset deadlock, setup faults) ***must*** abort immediately with `$finish;`.
+- Failure messages ***must*** report simulation time (`$time`), test tag, expected value, and actual value, with explicit radix prefixes (`0x%0h`, `0b%0b`, `%0d`).
 
 ---
 
-## 2. Core Testing Patterns in Verilog-2001
-
-### A. Test Fixtures (`setup`)
-Declare a dedicated `setup` or `reset_dut` task in Verilog:
-- Drive all stimulus inputs to known, inactive states.
-- Assert and deassert reset synchronously.
-- Wait for a defined number of clock cycles to establish steady state.
-- Assert that all output ports have emerged from reset without `X` or `Z` values.
-
-### B. Assertion Helper Tasks
-Create reusable tasks for value comparisons to eliminate boilerplate:
+## 5. Canonical Testbench Skeleton
 
 ```verilog
-task expect_eq8(
-  input [7:0]   actual,
-  input [7:0]   expected,
-  input [127:0] test_tag
-);
-  begin
-    if (actual !== expected) begin
-      $display("[FAIL] %0t ns | %0s: expected 0x%0h (%0d), got 0x%0h (%0d)",
-               $time, test_tag, expected, expected, actual, actual);
-      errors = errors + 1;
-    end
-  end
-endtask
-
-task assert_true(
-  input         cond,
-  input [127:0] fatal_tag
-);
-  begin
-    if (!cond) begin
-      $display("[FATAL ASSERTION] %0t ns | %0s failed. Aborting simulation.", $time, fatal_tag);
-      $finish;
-    end
-  end
-endtask
-```
-
-### C. Modular Test Cases
-Organize verification into discrete, named tasks (e.g., `test_reset_behavior`, `test_normal_operation`, `test_corner_cases`) called sequentially by a main `initial` runner.
-
----
-
-## 3. Standard Testbench Template
-
-```verilog
-// Descrição: Self-checking testbench for my_module.
-// Tests: Reset state, basic transaction flow, edge cases.
-
 `timescale 1ns / 1ps
 `default_nettype none
 
-module my_module_test;
+module my_module_tb;
+  localparam ClkPeriodNs = 20;
+  localparam WatchdogNs  = 20000;
 
-  // -------------------------------------------------------------
-  // Parameters
-  // -------------------------------------------------------------
-  localparam ClkPeriodNs   = 20;     // 50 MHz clock
-  localparam WatchdogMaxNs = 20000;  // 20 us safety timeout
+  reg clk;
+  reg rst;
+  reg in_val;
+  wire out_val;
 
-  // -------------------------------------------------------------
-  // Signals
-  // -------------------------------------------------------------
-  reg        clk;
-  reg        rst;
-  reg        enable;
-  reg  [7:0] data_in;
-  wire [7:0] data_out;
-  wire       done;
-
-  // Test tracking counters
-  integer errors    = 0;
+  integer errors = 0;
   integer tests_run = 0;
 
-  // -------------------------------------------------------------
-  // Clock Generation
-  // -------------------------------------------------------------
   initial clk = 1'b0;
   always #(ClkPeriodNs / 2) clk = ~clk;
 
-  // -------------------------------------------------------------
-  // Unit Under Test (UUT)
-  // -------------------------------------------------------------
-  my_module #(
-    .SimSpeedup(1'b1)
-  ) my_module_dut (
-    .clk      (clk),
-    .rst      (rst),
-    .enable   (enable),
-    .data_in  (data_in),
-    .data_out (data_out),
-    .done     (done)
+  my_module #(.SimSpeedup(1'b1)) dut (
+    .clk(clk), .rst(rst), .in_val(in_val), .out_val(out_val)
   );
 
-  // -------------------------------------------------------------
-  // Watchdog Timer (Deadlock Prevention)
-  // -------------------------------------------------------------
+  // Mandatory Watchdog
   initial begin
-    #WatchdogMaxNs;
-    $display("\n[FATAL] %0t ns: Simulation watchdog timed out! Potential deadlock.", $time);
+    #WatchdogNs;
+    $display("[FATAL] %0t ns: Watchdog timeout - simulation deadlocked.", $time);
     $finish;
   end
 
-  // -------------------------------------------------------------
-  // Verification Helpers & Fixtures
-  // -------------------------------------------------------------
   task setup;
     begin
-      enable  <= 1'b0;
-      data_in <= 8'd0;
-      rst     <= 1'b1;
+      rst <= 1'b1; in_val <= 1'b0;
       repeat (2) @(posedge clk);
-      @(negedge clk);
-      rst     <= 1'b0;
+      @(negedge clk) rst <= 1'b0;
       @(posedge clk);
-
-      // Verify no X values emerge on outputs post-reset
-      if (data_out === 8'hxx || done === 1'bx) begin
-        $display("[FATAL] %0t ns: Output is X post-reset! data_out=0x%0h, done=%0b",
-                 $time, data_out, done);
+      if (out_val === 1'bx) begin
+        $display("[FATAL] %0t ns: Output X post-reset.", $time);
         $finish;
       end
     end
   endtask
 
-  task expect_eq8(
-    input [7:0]   actual,
-    input [7:0]   expected,
-    input [127:0] test_tag
-  );
-    begin
-      if (actual !== expected) begin
-        $display("[FAIL] %0t ns | %0s: expected 0x%0h (%0d), got 0x%0h (%0d)",
-                 $time, test_tag, expected, expected, actual, actual);
-        errors = errors + 1;
-      end
+  task expect_val(input exp, input [127:0] tag);
+    if (out_val !== exp) begin
+      $display("[FAIL] %0t ns | %0s: exp 0b%0b, got 0b%0b", $time, tag, exp, out_val);
+      errors = errors + 1;
     end
   endtask
 
-  // -------------------------------------------------------------
-  // Modular Test Cases
-  // -------------------------------------------------------------
-  task test_reset_behavior;
+  task test_basic;
     begin
       tests_run = tests_run + 1;
       setup();
-      @(negedge clk);
-      expect_eq8(data_out, 8'd0, "RESET_DATA_OUT");
-      if (done !== 1'b0) begin
-        $display("[FAIL] %0t ns | RESET_DONE: expected 0b0, got 0b%0b", $time, done);
-        errors = errors + 1;
-      end
+      @(negedge clk) in_val <= 1'b1;
+      @(posedge clk); #1;
+      expect_val(1'b1, "BASIC_RUN");
     end
   endtask
 
-  task test_data_increment;
-    begin
-      tests_run = tests_run + 1;
-      setup();
-
-      @(negedge clk);
-      enable  <= 1'b1;
-      data_in <= 8'd42;
-
-      @(posedge clk);
-      #1; // Sample post-clock edge
-      expect_eq8(data_out, 8'd43, "DATA_INC_STEP1");
-
-      @(negedge clk);
-      enable <= 1'b0;
-    end
-  endtask
-
-  // -------------------------------------------------------------
-  // Main Test Runner
-  // -------------------------------------------------------------
   initial begin
-    $display("========================================");
-    $display("STARTING SIMULATION: my_module_test");
-    $display("========================================");
-
-    test_reset_behavior();
-    test_data_increment();
-
-    #100;
-    $display("\n========================================");
-    $display("TEST SUMMARY");
-    $display("Tests Executed: %0d", tests_run);
-    $display("Errors Found:   %0d", errors);
-    if (errors == 0) begin
-      $display("RESULT: ALL TESTS PASSED!");
-      $display("========================================");
-    end else begin
-      $display("RESULT: TESTBENCH FAILED with %0d error(s)!", errors);
-      $display("========================================");
-    end
-
+    test_basic();
+    if (errors == 0) $display("RESULT: ALL TESTS PASSED! (Tests: %0d)", tests_run);
+    else $display("RESULT: TESTBENCH FAILED! Errors: %0d", errors);
     $finish;
   end
-
 endmodule
-
 `default_nettype wire
-```
-
----
-
-## 4. Simulation Toolchain & Commands
-
-### A. Icarus Verilog (`iverilog` + `vvp`)
-Compile and simulate from terminal or PowerShell:
-```bash
-# Compile RTL + Testbench
-iverilog -Wall -g2001 -o sim.vvp my_module.v my_module_test.v
-
-# Execute simulation
-vvp sim.vvp
-```
-
-### B. Waveform Dumping (for GTKWave)
-```verilog
-initial begin
-  $dumpfile("waveform.vcd");
-  $dumpvars(0, my_module_test);
-end
-```
-Then view with:
-```bash
-gtkwave waveform.vcd
 ```

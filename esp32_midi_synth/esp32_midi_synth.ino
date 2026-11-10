@@ -65,7 +65,7 @@ constexpr i2s_port_t kI2sPortNum = I2S_NUM_0;
 
 // Parametros de sintese e baixa latencia (< 3 ms).
 constexpr int kSampleRateHz = 44100;
-constexpr int kAudioBlockFrames = 64; // ~1.45 ms por bloco @ 44.1 kHz.
+constexpr int kAudioBlockFrames = 128; // ~2.90 ms por bloco @ 44.1 kHz.
 constexpr int kMaxPolyphonyVoices = 16;
 constexpr float kGlobalGainDb = -6.0f; // -6 dB: nivel ideal para caixa de som ativa (1.05 V RMS) e previne clipping digital em polifonia.
 constexpr UBaseType_t kMidiQueueLength = 128;
@@ -300,9 +300,11 @@ void setup()
   Serial.println(
       "[OK] ESP32-S3 MIDI Synth (UART 115200 8N1 | I2S 44.1kHz 16-bit Stereo)");
 
-  // Teste de boot: toca uma nota (Dó central - C4) para confirmar que o DAC e caixa estao ativos
+  // Teste de boot: toca uma nota (Dó central - C4) e encerra para confirmar que o DAC e caixa estao ativos
   delay(100);
   EnqueueMidiEvent(0x90, 60, 80); // Note On: Do4 (nota 60), vel 80
+  delay(350);
+  EnqueueMidiEvent(0x80, 60, 0);  // Note Off: Do4 (encerra nota de teste sem deixar vozes zumbis)
 }
 
 void loop()

@@ -89,8 +89,8 @@ module logica_notas_prioridade_tb;
       // Solta botao 0
       @(negedge clk);
       botoes <= 7'b0000000;
-      #1;
-      expect_nota(3'd1, 1'b0, "TESTE_SOLTA_DO_TEM_NOTA_ZERO");
+      @(negedge clk);
+      expect_nota(3'd0, 1'b0, "TESTE_SOLTA_DO_TEM_NOTA_ZERO");
 
       // Pressiona Si (botao 6)
       @(negedge clk);
@@ -101,8 +101,8 @@ module logica_notas_prioridade_tb;
       // Solta botao 6
       @(negedge clk);
       botoes <= 7'b0000000;
-      #1;
-      expect_nota(3'd7, 1'b0, "TESTE_SOLTA_SI_TEM_NOTA_ZERO");
+      @(negedge clk);
+      expect_nota(3'd0, 1'b0, "TESTE_SOLTA_SI_TEM_NOTA_ZERO");
     end
   endtask
 
@@ -157,8 +157,40 @@ module logica_notas_prioridade_tb;
 
       @(negedge clk);
       botoes <= 7'b0000000;
-      #1;
-      expect_nota(3'd1, 1'b0, "TESTE_FALLBACK_SOLTA_TUDO");
+      @(negedge clk);
+      expect_nota(3'd0, 1'b0, "TESTE_FALLBACK_SOLTA_TUDO");
+    end
+  endtask
+
+  task test_transicao_teclas_distintas;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      // Pressiona Do (botao 0)
+      @(negedge clk);
+      botoes <= 7'b0000001;
+      @(negedge clk);
+      expect_nota(3'd1, 1'b1, "TESTE_TRANSICAO_DO_PRESSIONADO");
+
+      // Solta Do completamente
+      @(negedge clk);
+      botoes <= 7'b0000000;
+      @(negedge clk);
+      expect_nota(3'd0, 1'b0, "TESTE_TRANSICAO_DO_SOLTO");
+
+      // Pressiona Re (botao 1) - nota_id deve ser estritamente 0 ou 2, NUNCA 1 (Do residual)
+      @(negedge clk);
+      botoes <= 7'b0000010;
+      if (nota_id === 3'd1) begin
+        $display(
+          "[FALHA] %0t ns | TESTE_TRANSICAO_RE_NAO_PODE_SER_DO: obtido nota_id fantasma 1!",
+          $time
+        );
+        errors = errors + 1;
+      end
+      @(negedge clk);
+      expect_nota(3'd2, 1'b1, "TESTE_TRANSICAO_RE_ESTAVEL");
     end
   endtask
 
@@ -169,6 +201,7 @@ module logica_notas_prioridade_tb;
     test_teclas_individuais();
     test_prioridade_ultima_tecla();
     test_fallback_maior_indice();
+    test_transicao_teclas_distintas();
 
     #100;
     $display("RESUMO DOS TESTES");

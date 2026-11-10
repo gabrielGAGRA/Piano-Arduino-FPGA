@@ -1,0 +1,14 @@
+# vsim -c -do "run -all; quit" work.codificador_midi_tb 
+# Start time: 11:19:25 on Nov 10,2026
+# Loading work.codificador_midi_tb
+# Loading work.codificador_midi
+# run -all
+# INICIANDO SIMULACAO: codificador_midi_tb
+# RESUMO DOS TESTES
+# Testes executados: 128
+# Erros encontrados: 0
+# RESULTADO: TODOS OS TESTES PASSARAM!
+# ** Note: $finish    : codificador_midi_tb.v(116)
+#    Time: 660 ns  Iteration: 0  Instance: /codificador_midi_tb
+# End time: 11:19:26 on Nov 10,2026, Elapsed time: 0:00:01
+# Errors: 0, Warnings: 0

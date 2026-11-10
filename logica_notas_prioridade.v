@@ -45,8 +45,11 @@ module logica_notas_prioridade (
         nota_id <= 3'd7;
       end
 
-      // Fallback: se a ultima nota ativa foi solta, seleciona a de maior indice
-      if (tem_nota && !tecla_ativa) begin
+      // Fallback: se a ultima nota ativa foi solta, seleciona a de maior indice.
+      // Se nenhuma tecla estiver pressionada, zera nota_id.
+      if (!tem_nota) begin
+        nota_id <= 3'd0;
+      end else if (!tecla_ativa) begin
         if (botoes[6]) begin
           nota_id <= 3'd7;
         end else if (botoes[5]) begin

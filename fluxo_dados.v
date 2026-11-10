@@ -427,8 +427,9 @@ module fluxo_dados #(
 
   wire s_is_demo = (modo_ativo == 2'd3);
   reg  r_nota_ativa_bpm_reg;
+  wire s_tem_nota_usuario = s_tem_nota && (s_nota_tocada != 3'd0) && (s_nota_midi_usuario != 7'd0);
   wire s_tem_nota_final = s_is_demo ?
-    ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota;
+    ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota_usuario;
 
   wire [6:0] s_vel_base = s_is_demo ?
     ((s_velocity_rom == 7'd0) ? 7'd100 : s_velocity_rom) : 7'd127;
@@ -444,7 +445,7 @@ module fluxo_dados #(
 
   wire [6:0] s_nota_midi_desejada = s_is_demo ?
     (r_nota_ativa_bpm_reg ? s_nota_midi_rom : 7'd0) :
-    (s_tem_nota ? s_nota_midi_usuario : 7'd0);
+    (s_tem_nota_usuario ? s_nota_midi_usuario : 7'd0);
 
   gerenciador_midi_tx #(
     .ClockDiv(ClockDivUart)

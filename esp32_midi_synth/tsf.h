@@ -303,6 +303,7 @@ extern "C"
 #define TSF_EXPF expf
 #define TSF_LOG log
 #define TSF_TAN tan
+#define TSF_TANF tanf
 #define TSF_LOG10 log10
 #define TSF_SQRTF sqrtf
 #endif
@@ -579,7 +580,7 @@ extern "C"
     };
     struct tsf_voice_lowpass
     {
-        double QInv, a0, a1, b1, b2, z1, z2;
+        float QInv, a0, a1, b1, b2, z1, z2;
         TSF_BOOL active;
     };
     struct tsf_voice_lfo
@@ -1455,6 +1456,14 @@ extern "C"
             }
             /* fall through */
         case TSF_SEGMENT_DECAY:
+            if (e->parameters.sustain <= 0.0001f)
+            {
+                e->segment = TSF_SEGMENT_DONE;
+                e->level = e->slope = 0.0f;
+                e->samplesUntilNextSegment = 0x7FFFFFFF;
+                e->segmentIsExponential = TSF_FALSE;
+                return;
+            }
             e->segment = TSF_SEGMENT_SUSTAIN;
             e->level = e->parameters.sustain;
             e->slope = 0.0f;
@@ -1520,20 +1529,20 @@ extern "C"
     static void tsf_voice_lowpass_setup(struct tsf_voice_lowpass *e, float Fc)
     {
         // Lowpass filter from http://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
-        double K = TSF_TAN(TSF_PI * Fc), KK = K * K;
-        double norm = 1 / (1 + K * e->QInv + KK);
+        float K = TSF_TANF((float)TSF_PI * Fc), KK = K * K;
+        float norm = 1.0f / (1.0f + K * e->QInv + KK);
         e->a0 = KK * norm;
-        e->a1 = 2 * e->a0;
-        e->b1 = 2 * (KK - 1) * norm;
-        e->b2 = (1 - K * e->QInv + KK) * norm;
+        e->a1 = 2.0f * e->a0;
+        e->b1 = 2.0f * (KK - 1.0f) * norm;
+        e->b2 = (1.0f - K * e->QInv + KK) * norm;
     }
 
-    static float tsf_voice_lowpass_process(struct tsf_voice_lowpass *e, double In)
+    static float tsf_voice_lowpass_process(struct tsf_voice_lowpass *e, float In)
     {
-        double Out = In * e->a0 + e->z1;
+        float Out = In * e->a0 + e->z1;
         e->z1 = In * e->a1 + e->z2 - e->b1 * Out;
         e->z2 = In * e->a0 - e->b2 * Out;
-        return (float)Out;
+        return Out;
     }
 
     static void tsf_voice_lfo_setup(struct tsf_voice_lfo *e, float delay, int freqCents, float outSampleRate)
@@ -2021,6 +2030,18 @@ extern "C"
         {
             tsf_note_off(f, preset_index, key);
             return 1;
+        }
+
+        // Se a mesma nota já estiver tocando, finaliza as vozes anteriores rapidamente para evitar acúmulo
+        {
+            struct tsf_voice *v, *vEnd;
+            for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
+            {
+                if (v->playingPreset == preset_index && v->playingKey == key && v->ampenv.segment < TSF_SEGMENT_RELEASE)
+                {
+                    tsf_voice_endquick(f, v);
+                }
+            }
         }
 
         // Play all matching regions.

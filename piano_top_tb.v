@@ -181,6 +181,19 @@ module piano_top_tb;
 
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "LIVRE_NOTE_OFF_C4");
       repeat (10) @(posedge clk);
+
+      // Teste de alternancia rapida entre notas distintas: C4 -> D4
+      // Deve enviar estritamente Note On(D4) sem disparar Note On fantasma de C4
+      @(negedge clk);
+      gpio_keys <= 7'b0000010; // Tecla D4
+
+      receive_and_verify_midi_packet({8'h90, 8'd62, 8'd127}, "LIVRE_NOTE_ON_D4_SEM_FANTASMA");
+
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+
+      receive_and_verify_midi_packet({8'h80, 8'd62, 8'd0}, "LIVRE_NOTE_OFF_D4");
+      repeat (10) @(posedge clk);
     end
   endtask
 

@@ -6,8 +6,8 @@
 `default_nettype none
 
 module piano_top #(
-  parameter DebounceTecla    = 100_000,
-  parameter DebounceControle = 200_000,
+  parameter DebounceTecla    = 500_000,
+  parameter DebounceControle = 400_000,
   parameter ClockDivUart     = 434,
   parameter CiclosTick8ms    = 400_000
 )(

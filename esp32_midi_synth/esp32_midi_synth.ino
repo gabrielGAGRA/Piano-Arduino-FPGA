@@ -63,10 +63,10 @@ constexpr int kI2sDoutPin = I2S_DOUT_PIN;
 constexpr int kI2sBclkPin = I2S_BCLK_PIN;
 constexpr i2s_port_t kI2sPortNum = I2S_NUM_0;
 
-// Parametros de sintese e baixa latencia (< 3 ms).
+// Parametros de sintese e baixa latencia (< 6 ms).
 constexpr int kSampleRateHz = 44100;
-constexpr int kAudioBlockFrames = 128; // ~2.90 ms por bloco @ 44.1 kHz.
-constexpr int kMaxPolyphonyVoices = 16;
+constexpr int kAudioBlockFrames = 256; // ~5.80 ms por bloco @ 44.1 kHz (margem robusta contra jitter de Flash).
+constexpr int kMaxPolyphonyVoices = 12; // 12 vozes (6 notas estereo simultaneas).
 constexpr float kGlobalGainDb = -6.0f; // -6 dB: nivel ideal para caixa de som ativa (1.05 V RMS) e previne clipping digital em polifonia.
 constexpr UBaseType_t kMidiQueueLength = 128;
 
@@ -102,7 +102,7 @@ static bool InitI2sPcm5102a()
   i2s_cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
   i2s_cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
   i2s_cfg.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-  i2s_cfg.dma_buf_count = 4;
+  i2s_cfg.dma_buf_count = 6;
   i2s_cfg.dma_buf_len = kAudioBlockFrames;
   i2s_cfg.use_apll = false;
   i2s_cfg.tx_desc_auto_clear = true;

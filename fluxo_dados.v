@@ -398,11 +398,37 @@ module fluxo_dados #(
     .nota_id  (s_nota_esperada)
   );
 
+  // No Modo 1 (Aprendizado), preservamos a oitava e sustenido da nota enquanto o usuario
+  // mantiver alguma tecla pressionada. Isso impede re-ataques falsos (pipocos) quando a ROM
+  // avanca o endereco e troca de oitava/sustenido antes de o usuario soltar completamente a tecla.
+  reg [2:0] r_oitava_apre_reg;
+  reg       r_sustenido_apre_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      r_oitava_apre_reg    <= 3'd4;
+      r_sustenido_apre_reg <= 1'b0;
+    end else if (modo_ativo == 2'd1) begin
+      if (!s_tem_nota) begin
+        r_oitava_apre_reg    <= (s_nota_esperada != 3'd0) ?
+          s_oitava_esperada : s_oitava_livre;
+        r_sustenido_apre_reg <= (s_nota_esperada != 3'd0) ?
+          s_sustenido_esperado : s_btn_sustenido_db;
+      end
+    end else begin
+      r_oitava_apre_reg    <= s_oitava_livre;
+      r_sustenido_apre_reg <= s_btn_sustenido_db;
+    end
+  end
+
   wire s_ativo_apre_demo = (modo_ativo == 2'd1) || (modo_ativo == 2'd3);
-  wire [2:0] s_oitava_atual_uso = (s_ativo_apre_demo && (s_nota_esperada != 3'd0)) ?
-    s_oitava_esperada : s_oitava_livre;
-  wire s_sustenido_atual_uso = (s_ativo_apre_demo && (s_nota_esperada != 3'd0)) ?
-    s_sustenido_esperado : s_btn_sustenido_db;
+  wire [2:0] s_oitava_atual_uso = (modo_ativo == 2'd3) ?
+    ((s_nota_esperada != 3'd0) ? s_oitava_esperada : s_oitava_livre) :
+    ((modo_ativo == 2'd1) ? r_oitava_apre_reg : s_oitava_livre);
+
+  wire s_sustenido_atual_uso = (modo_ativo == 2'd3) ?
+    ((s_nota_esperada != 3'd0) ? s_sustenido_esperado : s_btn_sustenido_db) :
+    ((modo_ativo == 2'd1) ? r_sustenido_apre_reg : s_btn_sustenido_db);
 
   wire s_led_up;
   wire s_led_down;

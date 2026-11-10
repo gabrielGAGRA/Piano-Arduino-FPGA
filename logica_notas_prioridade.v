@@ -28,8 +28,9 @@ module logica_notas_prioridade (
     end else begin
       botoes_ant_reg <= botoes;
 
-      // Detecta borda de subida em cada botao
-      if (botoes[0] && !botoes_ant_reg[0]) begin
+      if (!tem_nota) begin
+        nota_id <= 3'd0;
+      end else if (botoes[0] && !botoes_ant_reg[0]) begin
         nota_id <= 3'd1;
       end else if (botoes[1] && !botoes_ant_reg[1]) begin
         nota_id <= 3'd2;
@@ -43,13 +44,8 @@ module logica_notas_prioridade (
         nota_id <= 3'd6;
       end else if (botoes[6] && !botoes_ant_reg[6]) begin
         nota_id <= 3'd7;
-      end
-
-      // Fallback: se a ultima nota ativa foi solta, seleciona a de maior indice.
-      // Se nenhuma tecla estiver pressionada, zera nota_id.
-      if (!tem_nota) begin
-        nota_id <= 3'd0;
       end else if (!tecla_ativa) begin
+        // Fallback: se a nota mantida foi solta, seleciona a de maior indice ativa
         if (botoes[6]) begin
           nota_id <= 3'd7;
         end else if (botoes[5]) begin

@@ -299,6 +299,10 @@ void setup()
 
   Serial.println(
       "[OK] ESP32-S3 MIDI Synth (UART 115200 8N1 | I2S 44.1kHz 16-bit Stereo)");
+
+  // Teste de boot: toca uma nota (Dó central - C4) para confirmar que o DAC e caixa estao ativos
+  delay(100);
+  EnqueueMidiEvent(0x90, 60, 80); // Note On: Do4 (nota 60), vel 80
 }
 
 void loop()

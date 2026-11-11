@@ -54,21 +54,22 @@ module tabela_offsets_partituras_tb;
   initial begin
     $display("INICIANDO SIMULACAO: tabela_offsets_partituras_tb");
 
-    // Teste 1: Clair de Lune (Indice 4)
-    check_offset(6'd4, 14'd1, "CLAIR_DE_LUNE_OFFSET");
+    // Testes de musicas com partituras populadas
+    check_offset(6'd4,  14'd1,    "CLAIR_DE_LUNE_OFFSET");
+    check_offset(6'd6,  14'd799,  "DO_RE_MI_FA_OFFSET");
+    check_offset(6'd18, 14'd807,  "JUMP_UP_SUPER_STAR_OFFSET");
+    check_offset(6'd27, 14'd1624, "NEW_DONK_CITY_OFFSET");
+    check_offset(6'd40, 14'd2094, "WII_SPORTS_OFFSET");
 
-    // Teste 2: Do Re Mi Fa (Indice 6)
-    check_offset(6'd6, 14'd799, "DO_RE_MI_FA_OFFSET");
+    // Testes de slots vazios (sem partitura baixada)
+    check_offset(6'd0,  14'd0,    "AXEL_F_SLOT_VAZIO");
+    check_offset(6'd1,  14'd0,    "BAD_ROMANCE_SLOT_VAZIO");
+    check_offset(6'd5,  14'd0,    "CLOCKS_SLOT_VAZIO");
+    check_offset(6'd41, 14'd0,    "ZELDA_SLOT_VAZIO");
 
-    // Teste 3: Slots nao populados (ex: 0, 1, 5, 38)
-    check_offset(6'd0, 14'd0, "AXEL_F_SLOT_VAZIO");
-    check_offset(6'd1, 14'd0, "BAD_ROMANCE_SLOT_VAZIO");
-    check_offset(6'd5, 14'd0, "CLOCKS_SLOT_VAZIO");
-    check_offset(6'd38, 14'd0, "ZELDA_SLOT_VAZIO");
-
-    // Teste 4: Slot 39 (RAM do usuario) e indices fora da faixa
-    check_offset(6'd39, 14'd0, "RAM_SLOT_39_OFFSET_ZERO");
-    check_offset(6'd63, 14'd0, "FORA_DE_LIMITES_OFFSET_ZERO");
+    // Testes de slot 42 (RAM do usuario) e indices fora da faixa
+    check_offset(6'd42, 14'd0,    "RAM_SLOT_42_OFFSET_ZERO");
+    check_offset(6'd63, 14'd0,    "FORA_DE_LIMITES_OFFSET_ZERO");
 
     #10;
     $display("--------------------------------------------------");

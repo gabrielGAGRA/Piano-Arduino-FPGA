@@ -48,8 +48,9 @@ module painel_display_leds (
       (volume == 2'd1) ? 7'h78 : 7'h12) :
     hex4_normal;
 
-  // HEX3 e HEX2: Decodificacao BCD da musica (00 a 39)
+  // HEX3 e HEX2: Decodificacao BCD da musica (00 a 49)
   wire [5:0] actual_idx = sel_musica;
+  wire [5:0] diff40 = actual_idx - 6'd40;
   wire [5:0] diff30 = actual_idx - 6'd30;
   wire [5:0] diff20 = actual_idx - 6'd20;
   wire [5:0] diff10 = actual_idx - 6'd10;
@@ -57,7 +58,10 @@ module painel_display_leds (
   reg  [3:0] musica_uni_val;
 
   always @* begin
-    if (actual_idx >= 6'd30) begin
+    if (actual_idx >= 6'd40) begin
+      musica_dez_val = 4'd4;
+      musica_uni_val = diff40[3:0];
+    end else if (actual_idx >= 6'd30) begin
       musica_dez_val = 4'd3;
       musica_uni_val = diff30[3:0];
     end else if (actual_idx >= 6'd20) begin

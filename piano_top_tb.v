@@ -205,7 +205,7 @@ module piano_top_tb;
       tests_run = tests_run + 1;
       setup();
 
-      for (idx = 0; idx < 39; idx = idx + 1) begin
+      for (idx = 0; idx < 42; idx = idx + 1) begin
         press_btn_musica();
       end
 
@@ -274,10 +274,10 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd68, 8'd48}, "CLAIR_DE_LUNE_N0_ON");
-          receive_and_verify_midi_packet({8'h80, 8'd68, 8'd0},  "CLAIR_DE_LUNE_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd80, 8'd61}, "CLAIR_DE_LUNE_N1_ON");
-          receive_and_verify_midi_packet({8'h80, 8'd80, 8'd0},  "CLAIR_DE_LUNE_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd48}, "CLAIR_DE_LUNE_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},  "CLAIR_DE_LUNE_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd79, 8'd61}, "CLAIR_DE_LUNE_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd79, 8'd0},  "CLAIR_DE_LUNE_N1_OFF");
         end
         begin
           @(negedge clk);

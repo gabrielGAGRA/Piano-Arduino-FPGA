@@ -58,8 +58,8 @@ module tabela_offsets_partituras_tb;
     check_offset(6'd4,  14'd1,    "CLAIR_DE_LUNE_OFFSET");
     check_offset(6'd6,  14'd799,  "DO_RE_MI_FA_OFFSET");
     check_offset(6'd18, 14'd807,  "JUMP_UP_SUPER_STAR_OFFSET");
-    check_offset(6'd27, 14'd1624, "NEW_DONK_CITY_OFFSET");
-    check_offset(6'd40, 14'd2094, "WII_SPORTS_OFFSET");
+    check_offset(6'd27, 14'd1355, "NEW_DONK_CITY_OFFSET");
+    check_offset(6'd40, 14'd1813, "WII_SPORTS_OFFSET");
 
     // Testes de slots vazios (sem partitura baixada)
     check_offset(6'd0,  14'd0,    "AXEL_F_SLOT_VAZIO");

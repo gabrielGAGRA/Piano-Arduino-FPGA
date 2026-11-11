@@ -41,7 +41,7 @@ module tabela_offsets_partituras #(
       6'd24: base_addr = 14'd0; // Moonlight_Sonata_3mvt
       6'd25: base_addr = 14'd0; // Morning_Flower
       6'd26: base_addr = 14'd0; // Never_Gonna_Give_You_Up
-      6'd27: base_addr = 14'd1624; // New_Donk_City
+      6'd27: base_addr = 14'd1355; // New_Donk_City
       6'd28: base_addr = 14'd0; // Numb
       6'd29: base_addr = 14'd0; // Pink_Panther
       6'd30: base_addr = 14'd0; // Radio_Ga_Ga
@@ -54,7 +54,7 @@ module tabela_offsets_partituras #(
       6'd37: base_addr = 14'd0; // Undertale_Megalovania
       6'd38: base_addr = 14'd0; // We_Are_Number_One
       6'd39: base_addr = 14'd0; // When_Love_Takes_Over
-      6'd40: base_addr = 14'd2094; // Wii_Sports
+      6'd40: base_addr = 14'd1813; // Wii_Sports
       6'd41: base_addr = 14'd0; // Zelda_Lost_Woods
       default: base_addr = {AddrWidth{1'b0}};
     endcase

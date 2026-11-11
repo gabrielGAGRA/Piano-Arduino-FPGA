@@ -1,4 +1,6 @@
 local/
+music/.mid/extras
+
 *.vpp
 
 */__pycache__

@@ -174,6 +174,8 @@ module fluxo_dados #(
 
   wire s_modo_released = (!s_modo_pressed && r_modo_prev_reg);
 
+  localparam [25:0] CiclosDisplayVol = 125 * CiclosTick8ms;
+
   reg        combo_ativo_reg;
   reg [1:0]  estado_vol_reg;
   reg [25:0] timer_display_vol_reg;
@@ -186,7 +188,7 @@ module fluxo_dados #(
     end else begin
       if (s_modo_pressed && s_btn_intensidade_pulse) begin
         combo_ativo_reg       <= 1'b1;
-        timer_display_vol_reg <= 26'd50_000_000;
+        timer_display_vol_reg <= CiclosDisplayVol;
 
         if (estado_vol_reg == 2'd2) begin
           estado_vol_reg <= 2'd0;

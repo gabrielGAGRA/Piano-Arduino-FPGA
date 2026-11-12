@@ -294,17 +294,21 @@ extern "C"
 #if !defined(TSF_POW) || !defined(TSF_POWF) || !defined(TSF_EXPF) || !defined(TSF_LOG) || !defined(TSF_TAN) || !defined(TSF_LOG10) || !defined(TSF_SQRT)
 #include <math.h>
 #if !defined(__cplusplus) && !defined(NAN) && !defined(powf) && !defined(expf) && !defined(sqrtf)
-#define powf (float)pow   // deal with old math.h
-#define expf (float)exp   // files that come without
-#define sqrtf (float)sqrt // powf, expf and sqrtf
+#define powf (float)pow     // deal with old math.h
+#define expf (float)exp     // files that come without
+#define sqrtf (float)sqrt   // powf, expf and sqrtf
+#define logf (float)log
+#define log10f (float)log10
+#define tanf (float)tan
 #endif
-#define TSF_POW pow
+#define TSF_POW powf
 #define TSF_POWF powf
 #define TSF_EXPF expf
-#define TSF_LOG log
-#define TSF_TAN tan
+#define TSF_LOG logf
+#define TSF_TAN tanf
 #define TSF_TANF tanf
-#define TSF_LOG10 log10
+#define TSF_LOG10 log10f
+#define TSF_SQRT sqrtf
 #define TSF_SQRTF sqrtf
 #endif
 
@@ -315,7 +319,7 @@ extern "C"
 #define TSF_TRUE 1
 #define TSF_FALSE 0
 #define TSF_BOOL unsigned char
-#define TSF_PI 3.14159265358979323846264338327950288
+#define TSF_PI 3.14159265358979323846f
 #define TSF_NULL 0
 
 #ifdef __cplusplus
@@ -640,11 +644,10 @@ extern "C"
         struct tsf_channel channels[1];
     };
 
-    static double tsf_timecents2Secsd(double timecents) { return TSF_POW(2.0, timecents / 1200.0); }
     static float tsf_timecents2Secsf(float timecents) { return TSF_POWF(2.0f, timecents / 1200.0f); }
     static float tsf_cents2Hertz(float cents) { return 8.176f * TSF_POWF(2.0f, cents / 1200.0f); }
-    static float tsf_decibelsToGain(float db) { return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0); }
-    static float tsf_gainToDecibels(float gain) { return (gain <= .00001f ? -100.f : (float)(20.0 * TSF_LOG10(gain))); }
+    static float tsf_decibelsToGain(float db) { return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0.0f); }
+    static float tsf_gainToDecibels(float gain) { return (gain <= .00001f ? -100.f : (20.0f * TSF_LOG10(gain))); }
 
     static TSF_BOOL tsf_riffchunk_read(struct tsf_riffchunk *parent, struct tsf_riffchunk *chunk, struct tsf_stream *stream)
     {
@@ -1316,7 +1319,7 @@ extern "C"
 
                 // Convert the samples from short to float
                 for (out = res + oldResNum; in < inEnd;)
-                    *(out++) = (float)(*(in++) / 32767.0);
+                    *(out++) = (float)(*(in++) / 32767.0f);
             }
         }
 
@@ -1392,8 +1395,8 @@ extern "C"
             {
                 e->segment = TSF_SEGMENT_DELAY;
                 e->segmentIsExponential = TSF_FALSE;
-                e->level = 0.0;
-                e->slope = 0.0;
+                e->level = 0.0f;
+                e->slope = 0.0f;
                 return;
             }
             /* fall through */
@@ -1634,7 +1637,8 @@ extern "C"
         TSF_BOOL updateVibLFO = (v->viblfo.delta && (region->vibLfoToPitch));
         TSF_BOOL isLooping = (v->loopStart < v->loopEnd);
         unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
-        float tmpSampleEndFlt = (float)region->end, tmpLoopEndFlt = (float)tmpLoopEnd + 1.0f;
+        // Posicao relativa a region->offset: float de 24 bits perde precisao fracionaria em indices absolutos > 2^22 (SF2 grande), o que quantizava o pitch.
+        float tmpSampleEndFlt = (float)((int)region->end - (int)region->offset), tmpLoopEndFlt = (float)((int)tmpLoopEnd - (int)region->offset) + 1.0f;
         float tmpSourceSamplePosition = v->sourceSamplePosition;
         struct tsf_voice_lowpass tmpLowpass = v->lowpass;
 
@@ -1703,10 +1707,10 @@ extern "C"
                 gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
                 while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndFlt)
                 {
-                    unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+                    unsigned int relPos = (unsigned int)tmpSourceSamplePosition, pos = region->offset + relPos, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float alpha = tmpSourceSamplePosition - (float)relPos;
                     float val = inputShort ?
                         ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
                         (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
@@ -1729,10 +1733,10 @@ extern "C"
                 gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
                 while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndFlt)
                 {
-                    unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+                    unsigned int relPos = (unsigned int)tmpSourceSamplePosition, pos = region->offset + relPos, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float alpha = tmpSourceSamplePosition - (float)relPos;
                     float val = inputShort ?
                         ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
                         (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
@@ -1754,10 +1758,10 @@ extern "C"
             case TSF_MONO:
                 while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndFlt)
                 {
-                    unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+                    unsigned int relPos = (unsigned int)tmpSourceSamplePosition, pos = region->offset + relPos, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
                     // Simple linear interpolation.
-                    float alpha = (float)(tmpSourceSamplePosition - pos);
+                    float alpha = tmpSourceSamplePosition - (float)relPos;
                     float val = inputShort ?
                         ((float)(inputShort[pos] * (1.0f - alpha) + inputShort[nextPos] * alpha) * (1.0f / 32767.0f)) :
                         (inputFloat[pos] * (1.0f - alpha) + inputFloat[nextPos] * alpha);
@@ -2128,7 +2132,7 @@ extern "C"
             }
 
             // Offset/end.
-            voice->sourceSamplePosition = region->offset;
+            voice->sourceSamplePosition = 0.0f;
 
             // Loop.
             doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
@@ -2142,8 +2146,8 @@ extern "C"
             // Setup lowpass filter.
             lowpassFc = (region->initialFilterFc <= 13500 ? tsf_cents2Hertz((float)region->initialFilterFc) / f->outSampleRate : 1.0f);
             lowpassFilterQDB = region->initialFilterQ / 10.0f;
-            voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
-            voice->lowpass.z1 = voice->lowpass.z2 = 0;
+            voice->lowpass.QInv = 1.0f / TSF_POWF(10.0f, (lowpassFilterQDB / 20.0f));
+            voice->lowpass.z1 = voice->lowpass.z2 = 0.0f;
             voice->lowpass.active = (lowpassFc < 0.499f);
             if (voice->lowpass.active)
                 tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);

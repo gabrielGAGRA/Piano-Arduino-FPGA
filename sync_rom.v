@@ -19,7 +19,7 @@ module sync_rom #(
 
   integer i;
   initial begin
-    for (i = 0; i < (2**AddrWidth); i = i + 1) begin
+    for (i = 0; (i < (2**AddrWidth)) && (i < 4050); i = i + 1) begin
       rom[i] = {DataWidth{1'b0}};
     end
     if (HexMode) begin

@@ -2,3 +2,4 @@ local/
 *.vpp
 
 */__pycache__
+.venv/

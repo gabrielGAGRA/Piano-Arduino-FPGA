@@ -17,11 +17,7 @@ module sync_rom #(
 
   (* ramstyle = "M10K" *) reg [DataWidth-1:0] rom [0:(2**AddrWidth)-1];
 
-  integer i;
   initial begin
-    for (i = 0; i < (2**AddrWidth); i = i + 1) begin
-      rom[i] = {DataWidth{1'b0}};
-    end
     if (HexMode) begin
       $readmemh(InitFile, rom);
     end else begin

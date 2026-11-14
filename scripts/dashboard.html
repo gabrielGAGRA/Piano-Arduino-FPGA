@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Piano FPGA - Dashboard de Desempenho</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --card-border: #30363d;
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --primary: #58a6ff;
+      --success: #3fb950;
+      --danger: #f85149;
+      --warning: #d29922;
+      --accent: #bc8cff;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.5;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 2rem;
+    }
+
+    .title-group h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .title-group p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    button {
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: #21262d;
+      border-color: #8b949e;
+    }
+
+    button.btn-primary {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+    }
+
+    button.btn-primary:hover {
+      background: #2ea043;
+    }
+
+    .status-badge {
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #21262d;
+      border: 1px solid var(--card-border);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--danger);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* Grid Layout */
+    .grid-top {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 900px) {
+      .grid-top { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Score Card */
+    .score-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 1rem 0;
+    }
+
+    .score-circle {
+      position: relative;
+      width: 160px;
+      height: 160px;
+    }
+
+    .score-circle svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+
+    .score-circle circle {
+      fill: none;
+      stroke-width: 12;
+      stroke-linecap: round;
+    }
+
+    .circle-bg { stroke: #21262d; }
+    .circle-val {
+      stroke: var(--primary);
+      stroke-dasharray: 440;
+      stroke-dashoffset: 440;
+      transition: stroke-dashoffset 0.8s ease, stroke 0.3s ease;
+    }
+
+    .score-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2.2rem;
+      font-weight: 800;
+    }
+
+    .rank-tag {
+      margin-top: 1rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .song-badge {
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Stat Cards */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+      width: 100%;
+    }
+
+    .stat-box {
+      background: #0d1117;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .stat-val {
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    .stat-lbl {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 0.25rem;
+    }
+
+    .text-success { color: var(--success); }
+    .text-danger { color: var(--danger); }
+    .text-primary { color: var(--primary); }
+
+    /* History & Selector Section */
+    .history-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    select {
+      background: #0d1117;
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      min-width: 250px;
+    }
+
+    /* Table & Chart Container */
+    .table-container {
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #0d1117;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Chart */
+    .chart-container {
+      height: 180px;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      padding: 1rem 0.5rem 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .chart-bar-wrap {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .chart-bar {
+      width: 100%;
+      max-width: 42px;
+      background: linear-gradient(180deg, var(--primary) 0%, rgba(88, 166, 255, 0.2) 100%);
+      border-radius: 4px 4px 0 0;
+      transition: height 0.6s ease;
+      min-height: 4px;
+    }
+
+    .chart-bar.high {
+      background: linear-gradient(180deg, var(--success) 0%, rgba(63, 185, 80, 0.2) 100%);
+    }
+
+    .chart-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1>🎹 Piano FPGA — Dashboard</h1>
+        <p>Monitoramento e Histórico de Execuções do Modo Aprendizado (DE0-CV)</p>
+      </div>
+      <div class="actions">
+        <div class="status-badge">
+          <div class="status-dot" id="status-dot"></div>
+          <span id="status-text">Serial Desconectada</span>
+        </div>
+        <button id="btn-connect" class="btn-primary" onclick="conectarWebSerial()">
+          🔌 Conectar Serial (USB)
+        </button>
+        <button id="btn-demo" onclick="simularPartidaAleatoria()">
+          🎲 Simular Partida
+        </button>
+      </div>
+    </header>
+
+    <div class="grid-top">
+      <!-- Card da Última Execução -->
+      <div class="card">
+        <div class="card-title">Última Execução Registrada</div>
+        <div class="score-container">
+          <div class="song-badge" id="current-song-title">Aguardando partida...</div>
+          <p id="current-song-id" style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Selecione uma música ou toque na FPGA</p>
+          
+          <div class="score-circle">
+            <svg viewBox="0 0 160 160">
+              <circle class="circle-bg" cx="80" cy="80" r="70"></circle>
+              <circle class="circle-val" id="score-circle-bar" cx="80" cy="80" r="70"></circle>
+            </svg>
+            <div class="score-label" id="score-circle-text">--%</div>
+          </div>
+          
+          <div class="rank-tag" id="current-rank">Nenhuma execução recente</div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="stat-val text-success" id="stat-acertos">0</div>
+            <div class="stat-lbl">Acertos</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val text-danger" id="stat-erros">0</div>
+            <div class="stat-lbl">Erros</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val text-primary" id="stat-total">0</div>
+            <div class="stat-lbl">Total</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card do Histórico por Música -->
+      <div class="card">
+        <div class="history-header">
+          <div>
+            <div class="card-title" style="margin-bottom: 0.25rem;">Histórico Individual das 10 Últimas Partidas</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Evolução e registros detalhados por melodia</p>
+          </div>
+          <select id="select-musica" onchange="selecionarMusica(this.value)">
+            <!-- Opções preenchidas dinamicamente -->
+          </select>
+        </div>
+
+        <div id="history-content">
+          <div class="chart-container" id="chart-bars">
+            <!-- Barras preenchidas dinamicamente -->
+          </div>
+
+          <div class="stats-row" style="margin-top: 0; margin-bottom: 1.5rem;">
+            <div class="stat-box">
+              <div class="stat-val text-success" id="hist-best">--%</div>
+              <div class="stat-lbl">Melhor Score</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-val text-primary" id="hist-avg">--%</div>
+              <div class="stat-lbl">Média Recente</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-val" id="hist-count">0 / 10</div>
+              <div class="stat-lbl">Partidas Salvas</div>
+            </div>
+          </div>
+
+          <div class="table-container" role="region" aria-label="Tabela de execuções" tabindex="0">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Data / Hora</th>
+                  <th>Acertos</th>
+                  <th>Erros</th>
+                  <th>Total</th>
+                  <th>Aproveitamento</th>
+                </tr>
+              </thead>
+              <tbody id="table-history-body">
+                <!-- Linhas preenchidas dinamicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const NOMES_MUSICAS = [
+      "Axel F", "Bad Romance", "Beat It", "Careless Whisper", "Clair de Lune",
+      "Clocks", "Do Re Mi Fa", "Epitafio", "Fukashigi No Carte", "Fur Elise",
+      "Golden", "Golden Wind", "Harry Potter", "Head Over Heels", "Hey Jude",
+      "Homem Aranha 1900", "Imperial March", "Interestelar", "Korobeiniki (Tetris)",
+      "Lugar Ao Sol", "Magnetic", "Mario Bros", "Minecraft (Sweden)",
+      "Moonlight Sonata (3rd Mov)", "Morning Flower", "Never Gonna Give You Up",
+      "Numb", "Pink Panther", "Radio Ga Ga", "Sadness And Sorrow", "Super Idol",
+      "Susanne", "Sweet Child O Mine", "Take On Me", "Trem Das Onze",
+      "Undertale (Megalovania)", "We Are Number One", "When Love Takes Over",
+      "Zelda (Lost Woods)", "Musica Gravada pelo Usuario"
+    ];
+
+    let historicoData = {};
+    let selectedMusicaId = 6; // Padrão: Dó-Ré-Mi-Fá
+
+    // Inicialização do seletor de músicas
+    function inicializarSeletor() {
+      const select = document.getElementById("select-musica");
+      select.innerHTML = "";
+      NOMES_MUSICAS.forEach((nome, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.textContent = `#${String(idx).padStart(2, '0')} - ${nome}`;
+        if (idx === selectedMusicaId) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    function classificarScore(score) {
+      if (score >= 95) return { texto: "Virtuoso (Rank S)", cor: "var(--success)" };
+      if (score >= 85) return { texto: "Excelente (Rank A)", cor: "var(--success)" };
+      if (score >= 70) return { texto: "Bom (Rank B)", cor: "var(--primary)" };
+      if (score >= 50) return { texto: "Satisfatório (Rank C)", cor: "var(--warning)" };
+      return { texto: "Treinar mais (Rank D)", cor: "var(--danger)" };
+    }
+
+    function atualizarCardAtual(musicaId, acertos, erros, score) {
+      const nome = NOMES_MUSICAS[musicaId] || `Música ${musicaId}`;
+      const total = acertos + erros;
+      const rank = classificarScore(score);
+
+      document.getElementById("current-song-title").textContent = nome;
+      document.getElementById("current-song-id").textContent = `Melodia #${String(musicaId).padStart(2, '0')}`;
+      document.getElementById("stat-acertos").textContent = acertos;
+      document.getElementById("stat-erros").textContent = erros;
+      document.getElementById("stat-total").textContent = total;
+
+      const circleBar = document.getElementById("score-circle-bar");
+      const circleText = document.getElementById("score-circle-text");
+      const rankTag = document.getElementById("current-rank");
+
+      circleText.textContent = `${score}%`;
+      rankTag.textContent = rank.texto;
+      rankTag.style.color = rank.cor;
+
+      // Perímetro do círculo com r=70 é 2 * PI * 70 ≈ 440
+      const offset = 440 - (score / 100) * 440;
+      circleBar.style.strokeDashoffset = offset;
+      circleBar.style.stroke = rank.cor;
+    }
+
+    function registrarNoHistorico(musicaId, acertos, erros, score) {
+      const key = String(musicaId);
+      const nome = NOMES_MUSICAS[musicaId] || `Música ${musicaId}`;
+      const total = acertos + erros;
+      const dataHora = new Date().toLocaleTimeString('pt-BR');
+
+      if (!historicoData[key]) {
+        historicoData[key] = { musica_id: musicaId, nome: nome, execucoes: [] };
+      }
+
+      historicoData[key].execucoes.push({
+        timestamp: dataHora,
+        acertos: acertos,
+        erros: erros,
+        total: total,
+        score: score
+      });
+
+      // Retém no máximo as 10 últimas
+      if (historicoData[key].execucoes.length > 10) {
+        historicoData[key].execucoes = historicoData[key].execucoes.slice(-10);
+      }
+
+      // Persistência no localStorage
+      try {
+        localStorage.setItem("piano_fpga_history", JSON.stringify(historicoData));
+      } catch (e) {}
+
+      // Se estiver visualizando essa música, atualiza o histórico na tela
+      if (Number(selectedMusicaId) === Number(musicaId)) {
+        renderizarHistorico(musicaId);
+      }
+    }
+
+    function selecionarMusica(musicaId) {
+      selectedMusicaId = Number(musicaId);
+      renderizarHistorico(selectedMusicaId);
+    }
+
+    function renderizarHistorico(musicaId) {
+      const key = String(musicaId);
+      const entry = historicoData[key];
+      const execucoes = entry ? entry.execucoes : [];
+
+      const chartBars = document.getElementById("chart-bars");
+      const tbody = document.getElementById("table-history-body");
+      const bestEl = document.getElementById("hist-best");
+      const avgEl = document.getElementById("hist-avg");
+      const countEl = document.getElementById("hist-count");
+
+      countEl.textContent = `${execucoes.length} / 10`;
+
+      if (!execucoes || execucoes.length === 0) {
+        chartBars.innerHTML = `<div class="empty-state" style="width: 100%;">Nenhuma execução salva para esta música ainda.</div>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Sem dados registrados.</td></tr>`;
+        bestEl.textContent = "--%";
+        avgEl.textContent = "--%";
+        return;
+      }
+
+      const scores = execucoes.map(e => e.score);
+      const best = Math.max(...scores);
+      const avg = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1);
+
+      bestEl.textContent = `${best}%`;
+      avgEl.textContent = `${avg}%`;
+
+      // Renderiza Gráfico de Barras
+      chartBars.innerHTML = "";
+      execucoes.forEach((ex, idx) => {
+        const wrap = document.createElement("div");
+        wrap.className = "chart-bar-wrap";
+        const bar = document.createElement("div");
+        bar.className = `chart-bar ${ex.score >= 85 ? 'high' : ''}`;
+        bar.style.height = `${Math.max(ex.score, 5)}%`;
+        bar.title = `Partida #${idx + 1}: ${ex.score}% (${ex.timestamp})`;
+
+        const lbl = document.createElement("div");
+        lbl.className = "chart-label";
+        lbl.textContent = `${ex.score}%`;
+
+        wrap.appendChild(bar);
+        wrap.appendChild(lbl);
+        chartBars.appendChild(wrap);
+      });
+
+      // Renderiza Tabela
+      tbody.innerHTML = "";
+      execucoes.slice().reverse().forEach((ex, rIdx) => {
+        const idx = execucoes.length - rIdx;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${idx}</strong></td>
+          <td>${ex.timestamp}</td>
+          <td class="text-success">${ex.acertos}</td>
+          <td class="text-danger">${ex.erros}</td>
+          <td>${ex.total}</td>
+          <td><strong style="color: ${classificarScore(ex.score).cor}">${ex.score}%</strong></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Carregar histórico local
+    function carregarHistoricoSalvo() {
+      try {
+        const saved = localStorage.getItem("piano_fpga_history");
+        if (saved) {
+          historicoData = JSON.parse(saved);
+        }
+      } catch (e) {}
+
+      // Tenta também carregar do endpoint da API caso esteja rodando via servidor Python
+      fetch('/api/history')
+        .then(res => res.json())
+        .then(data => {
+          if (data && Object.keys(data).length > 0) {
+            historicoData = data;
+            renderizarHistorico(selectedMusicaId);
+          }
+        })
+        .catch(() => {});
+
+      renderizarHistorico(selectedMusicaId);
+    }
+
+    // Função de simulação para testar a interface
+    function simularPartidaAleatoria() {
+      const mid = Number(selectedMusicaId);
+      const totalNotas = 8 + Math.floor(Math.random() * 15);
+      const erros = Math.floor(Math.random() * 4);
+      const acertos = totalNotas - erros;
+      const score = Math.round((acertos / totalNotas) * 100);
+
+      atualizarCardAtual(mid, acertos, erros, score);
+      registrarNoHistorico(mid, acertos, erros, score);
+    }
+
+    // Conexão direta com a serial da FPGA usando Web Serial API (Chrome/Edge)
+    let serialPort = null;
+    async function conectarWebSerial() {
+      if (!("serial" in navigator)) {
+        alert("Web Serial API não suportada neste navegador.\nRecomendado: Google Chrome ou Microsoft Edge no computador.");
+        return;
+      }
+
+      try {
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate: 115200 });
+
+        document.getElementById("status-dot").classList.add("connected");
+        document.getElementById("status-text").textContent = "FPGA Conectada (115200)";
+        document.getElementById("btn-connect").textContent = "✓ Conectado";
+
+        lerStreamSerial(serialPort.readable.getReader());
+      } catch (err) {
+        console.error("Erro ao conectar serial:", err);
+      }
+    }
+
+    async function lerStreamSerial(reader) {
+      let estado = 0;
+      let pacote = new Uint8Array(7);
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          for (let i = 0; i < value.length; i++) {
+            const b = value[i];
+            if (estado === 0) {
+              if (b === 0xAA) { pacote[0] = b; estado = 1; }
+            } else if (estado === 1) {
+              if (b === 0xD1) { pacote[1] = b; estado = 2; }
+              else estado = 0;
+            } else if (estado >= 2 && estado <= 5) {
+              pacote[estado] = b;
+              estado++;
+            } else if (estado === 6) {
+              pacote[6] = b;
+              estado = 0;
+              const chk = (pacote[1] + pacote[2] + pacote[3] + pacote[4] + pacote[5]) & 0xFF;
+              if (chk === pacote[6]) {
+                const mid = pacote[2] & 0x3F;
+                const ac = pacote[3];
+                const er = pacote[4];
+                const sc = pacote[5];
+                atualizarCardAtual(mid, ac, er, sc);
+                registrarNoHistorico(mid, ac, er, sc);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Erro na leitura serial:", err);
+      } finally {
+        document.getElementById("status-dot").classList.remove("connected");
+        document.getElementById("status-text").textContent = "Serial Desconectada";
+        document.getElementById("btn-connect").textContent = "🔌 Conectar Serial (USB)";
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      inicializarSeletor();
+      carregarHistoricoSalvo();
+    });
+  </script>
+</body>
+</html>

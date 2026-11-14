@@ -24,6 +24,8 @@ module unidade_controle_tb;
   wire       escreve_ram;
   wire       zera_endereco;
   wire       conta_endereco;
+  wire       inc_acerto;
+  wire       inc_erro;
   wire [4:0] estado_hex;
 
   integer errors    = 0;
@@ -46,6 +48,8 @@ module unidade_controle_tb;
     .escreve_ram       (escreve_ram),
     .zera_endereco     (zera_endereco),
     .conta_endereco    (conta_endereco),
+    .inc_acerto        (inc_acerto),
+    .inc_erro          (inc_erro),
     .estado_hex        (estado_hex)
   );
 
@@ -103,6 +107,20 @@ module unidade_controle_tb;
     end
   endtask
 
+  task expect_inc(
+    input         exp_acerto,
+    input         exp_erro,
+    input [255:0] tag
+  );
+    begin
+      if (inc_acerto !== exp_acerto || inc_erro !== exp_erro) begin
+        $display("[FALHA] %0t ns | %0s: pulsos esperados (acerto=%b, erro=%b), obtidos (%b,%b)",
+          $time, tag, exp_acerto, exp_erro, inc_acerto, inc_erro);
+        errors = errors + 1;
+      end
+    end
+  endtask
+
   task test_reset_e_modo_livre;
     begin
       tests_run = tests_run + 1;
@@ -111,6 +129,7 @@ module unidade_controle_tb;
       @(negedge clk);
       expect_modo_estado(2'd0, 5'h0, "TESTE_LIVRE_MODO_ESTADO");
       expect_flags(1'b0, 1'b1, 1'b0, "TESTE_LIVRE_ZERA_ENDERECO");
+      expect_inc(1'b0, 1'b0, "TESTE_LIVRE_SEM_PULSOS");
     end
   endtask
 
@@ -126,26 +145,81 @@ module unidade_controle_tb;
       mudou_modo <= 1'b0;
       expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_INICIA_MUSICA");
       expect_flags(1'b0, 1'b1, 1'b0, "TESTE_APRENDIZADO_ZERA_END");
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_INICIA_SEM_PULSO");
+
+      @(negedge clk);
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_LE_RAM_INICIAL");
 
       @(negedge clk);
       expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_ESPERA_NOTA");
 
+      // 1. Cenário de ERRO: tecla errada pressionada
       tem_nota_ativa <= 1'b1;
-      @(negedge clk);
-      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_COMPARA_NOTA");
+      acerto_nota    <= 1'b0;
 
-      acerto_nota <= 1'b1;
       @(negedge clk);
-      acerto_nota <= 1'b0;
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_COMPARA_NOTA_ERRO");
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_COMPARA_SEM_PULSO");
+
+      @(negedge clk);
+      // Deve estar em kIncErro gerando pulso de 1 ciclo em inc_erro
+      expect_inc(1'b0, 1'b1, "TESTE_APRENDIZADO_PULSO_INC_ERRO");
+
+      @(negedge clk);
+      // Deve entrar em kEsperaSoltarErro cessando o pulso
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_FIM_PULSO_ERRO");
+      expect_flags(1'b0, 1'b0, 1'b0, "TESTE_APRENDIZADO_ERRO_SEM_CONTA_END");
+
+      // Mantem a tecla pressionada por mais 2 ciclos: nao pode gerar novo pulso nem avancar
+      repeat (2) @(negedge clk);
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_ERRO_MANTEM_BLOQUEIO");
+      expect_flags(1'b0, 1'b0, 1'b0, "TESTE_APRENDIZADO_ERRO_NAO_AVANCA");
+
+      // Solta a tecla: deve retornar para kEsperaNota
+      tem_nota_ativa <= 1'b0;
+      @(negedge clk);
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_ERRO_RETORNA_ESPERA");
+      expect_flags(1'b0, 1'b0, 1'b0, "TESTE_APRENDIZADO_ERRO_SEM_AVANCO");
+
+      // 2. Cenário de ACERTO: tecla correta pressionada
+      tem_nota_ativa <= 1'b1;
+      acerto_nota    <= 1'b1;
+
+      @(negedge clk);
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_COMPARA_NOTA_ACERTO");
+
+      @(negedge clk);
+      // Deve estar em kIncAcerto gerando pulso de 1 ciclo em inc_acerto
+      expect_inc(1'b1, 1'b0, "TESTE_APRENDIZADO_PULSO_INC_ACERTO");
+
+      @(negedge clk);
+      // Deve entrar em kEsperaSoltar cessando o pulso
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_FIM_PULSO_ACERTO");
       expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_ESPERA_SOLTAR");
 
+      // Solta a tecla: deve avancar endereco de partitura
       tem_nota_ativa <= 1'b0;
+      acerto_nota    <= 1'b0;
+
       @(negedge clk);
       expect_flags(1'b0, 1'b0, 1'b1, "TESTE_APRENDIZADO_CONTA_ENDERECO");
 
       @(negedge clk);
       @(negedge clk);
-      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_RETORNA_ESPERA_NOTA");
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_RETORNA_ESPERA_FINAL");
+
+      // 3. Fim de Musica: quando fim_musica vai a 1 em kEsperaNota
+      fim_musica <= 1'b1;
+      @(negedge clk);
+      fim_musica <= 1'b0;
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_FIM_MUSICA_ST");
+
+      // Pressionar tecla em kFimMusicaSt nao deve pulsar erro nem sair de kFimMusicaSt
+      tem_nota_ativa <= 1'b1;
+      @(negedge clk);
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_FIM_SEM_ERRO");
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_FIM_MANTEM_ESTADO");
+      tem_nota_ativa <= 1'b0;
     end
   endtask
 

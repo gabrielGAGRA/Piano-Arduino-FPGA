@@ -84,7 +84,7 @@ def parse_top_ports(verilog_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(Descrição="Output plain-text FPGA pin column sorted alphabetically")
+    parser = argparse.ArgumentParser(description="Output plain-text FPGA pin column sorted alphabetically")
     parser.add_argument("-t", "--top", help="Path to top-level Verilog file")
     parser.add_argument("-n", "--nodes", nargs="*", help="List of node names")
     parser.add_argument("-m", "--map", help="Mapping overrides (e.g. 'trigger=GPIO_1_D1,echo=GPIO_1_D3')")

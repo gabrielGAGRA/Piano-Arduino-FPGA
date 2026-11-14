@@ -59,6 +59,7 @@ module piano_top_tb;
     .btn_oitava_down_n  (btn_oitava_down_n),
     .btn_sustenido      (btn_sustenido),
     .saida_serial       (saida_serial),
+    .saida_serial_dashboard(),
     .servo_controle     (servo_controle),
     .led_vermelho       (led_vermelho),
     .led_sustenido      (led_sustenido),
@@ -281,10 +282,81 @@ module piano_top_tb;
     end
   endtask
 
+  task test_modo_aprendizado_acerto_erro;
+    integer m_idx;
+    reg [2:0] expected_nota;
+    reg [6:0] wrong_key;
+    reg [6:0] correct_key;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      // Seleciona Musica 6: Do_Re_Mi_Fa (offset 799 na ROM: Dó, Ré, Mi, Fá...)
+      for (m_idx = 0; m_idx < 6; m_idx = m_idx + 1) begin
+        press_btn_musica();
+      end
+
+      // Entra no Modo 1 (Aprendizado)
+      press_btn_modo();
+      repeat (DebounceControle + 10) @(posedge clk);
+
+      expected_nota = piano_top_inst.fluxo_dados_inst.s_nota_esperada;
+
+      // Na musica 6, a primeira nota e Do (nota_id = 1)
+      if (expected_nota == 3'd1) begin
+        correct_key = 7'b0000001; // Dó
+        wrong_key   = 7'b0000010; // Ré (erro)
+      end else begin
+        correct_key = (7'b0000001 << (expected_nota - 3'd1));
+        wrong_key   = 7'b0000010;
+      end
+
+      // 1. Toca nota errada
+      @(negedge clk);
+      gpio_keys <= wrong_key;
+      repeat (DebounceTecla + 20) @(posedge clk);
+
+      // Deve ter incrementado erros para 1 e mantido acertos em 0
+      if (piano_top_inst.fluxo_dados_inst.contador_m_erros.q !== 8'd1) begin
+        $display("[FALHA] %0t ns | TESTE_APRENDIZADO_ERRO: esperado erros=1, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.contador_m_erros.q);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.fluxo_dados_inst.contador_m_acertos.q !== 8'd0) begin
+        $display("[FALHA] %0t ns | TESTE_APRENDIZADO_ERRO: esperado acertos=0, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.contador_m_acertos.q);
+        errors = errors + 1;
+      end
+
+      // Solta tecla errada
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      repeat (DebounceTecla + 20) @(posedge clk);
+
+      // 2. Toca nota correta
+      @(negedge clk);
+      gpio_keys <= correct_key;
+      repeat (DebounceTecla + 20) @(posedge clk);
+
+      // Deve ter incrementado acertos para 1
+      if (piano_top_inst.fluxo_dados_inst.contador_m_acertos.q !== 8'd1) begin
+        $display("[FALHA] %0t ns | TESTE_APRENDIZADO_ACERTO: esperado acertos=1, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.contador_m_acertos.q);
+        errors = errors + 1;
+      end
+
+      // Solta tecla correta
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      repeat (DebounceTecla + 20) @(posedge clk);
+    end
+  endtask
+
   initial begin
     $display("INICIANDO SIMULACAO: piano_top_tb");
 
     test_modo_livre_midi();
+    test_modo_aprendizado_acerto_erro();
     test_gravacao_e_demonstracao_ram();
     test_demonstracao_clair_de_lune_rom();
 

@@ -21,6 +21,7 @@ module fluxo_dados #(
   input  wire        btn_oitava_up,
   input  wire        btn_oitava_down,
   input  wire        btn_sustenido,
+  input  wire        hcsr04_echo,
   input  wire [1:0]  modo_ativo,
   input  wire        escreve_ram,
   input  wire        conta_endereco,
@@ -42,6 +43,7 @@ module fluxo_dados #(
   output wire        sustenido_atual,
   output wire        led_oitava_up,
   output wire        led_oitava_down,
+  output wire        hcsr04_trigger,
   output wire [1:0]  out_volume,
   output wire        mostra_vol,
   output wire [31:0] t_passo_metronomo
@@ -160,6 +162,22 @@ module fluxo_dados #(
     .pulso(s_btn_oitava_down_pulse)
   );
 
+  wire s_combo_oitava = s_btn_oitava_up_db && s_btn_oitava_down_db;
+  reg  s_modo_oitava_sensor_reg;
+  reg  s_combo_oitava_armado_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      s_modo_oitava_sensor_reg <= 1'b0;
+      s_combo_oitava_armado_reg <= 1'b1;
+    end else if (!s_combo_oitava) begin
+      s_combo_oitava_armado_reg <= 1'b1;
+    end else if (s_combo_oitava_armado_reg) begin
+      s_modo_oitava_sensor_reg <= ~s_modo_oitava_sensor_reg;
+      s_combo_oitava_armado_reg <= 1'b0;
+    end
+  end
+
   // Logica de Combinacao (Modo + Intensidade)
   wire s_modo_pressed = s_btn_modo_db;
   reg  r_modo_prev_reg;
@@ -230,12 +248,55 @@ module fluxo_dados #(
 
   // Gerenciador de oitava livre
   wire [2:0] s_oitava_livre;
+  wire [11:0] s_distancia;
+  wire s_sensor_pronto;
+  wire [9:0] s_distancia_cm =
+    (s_distancia[11:8] * 10'd100) +
+    (s_distancia[7:4] * 10'd10) +
+    s_distancia[3:0];
+  reg [2:0] s_oitava_sensor_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      s_oitava_sensor_reg <= 3'd4;
+    end else if (s_sensor_pronto) begin
+      if (s_distancia_cm <= 10'd10) begin
+        s_oitava_sensor_reg <= 3'd7;
+      end else if (s_distancia_cm <= 10'd20) begin
+        s_oitava_sensor_reg <= 3'd6;
+      end else if (s_distancia_cm <= 10'd30) begin
+        s_oitava_sensor_reg <= 3'd5;
+		end else if (s_distancia_cm <= 10'd40) begin
+        s_oitava_sensor_reg <= 3'd4;
+      end else if (s_distancia_cm <= 10'd50) begin
+        s_oitava_sensor_reg <= 3'd3;
+		end else if (s_distancia_cm <= 10'd60) begin
+        s_oitava_sensor_reg <= 3'd2;
+      end else begin
+        s_oitava_sensor_reg <= 3'd1;
+      end
+    end
+  end
+
   guarda_oitava guarda_oitava_inst (
     .clk           (clk),
     .arst(arst),
-    .btn_up_pulse  (s_btn_oitava_up_pulse),
-    .btn_down_pulse(s_btn_oitava_down_pulse),
+    .btn_up_pulse  (s_btn_oitava_up_pulse && !s_modo_oitava_sensor_reg && !s_combo_oitava),
+    .btn_down_pulse(s_btn_oitava_down_pulse && !s_modo_oitava_sensor_reg && !s_combo_oitava),
     .oitava_atual  (s_oitava_livre)
+  );
+
+  interface_hcsr04 interface_hcsr04_oitava (
+    .clk      (clk),
+    .arst     (arst),
+    .medir    (s_modo_oitava_sensor_reg),
+    .echo     (hcsr04_echo),
+    .trigger  (hcsr04_trigger),
+    .medida   (s_distancia),
+    .pronto   (s_sensor_pronto),
+    .db_reset (),
+    .db_medir (),
+    .db_estado()
   );
 
   // 1. Logica de Prioridade de Teclas
@@ -424,9 +485,11 @@ module fluxo_dados #(
   end
 
   wire s_ativo_apre_demo = (modo_ativo == 2'd1) || (modo_ativo == 2'd3);
+  wire [2:0] s_oitava_selecionada = s_modo_oitava_sensor_reg ?
+    s_oitava_sensor_reg : s_oitava_livre;
   wire [2:0] s_oitava_atual_uso = (modo_ativo == 2'd3) ?
-    ((s_nota_esperada != 3'd0) ? s_oitava_esperada : s_oitava_livre) :
-    ((modo_ativo == 2'd1) ? r_oitava_apre_reg : s_oitava_livre);
+    ((s_nota_esperada != 3'd0) ? s_oitava_esperada : s_oitava_selecionada) :
+    ((modo_ativo == 2'd1) ? r_oitava_apre_reg : s_oitava_selecionada);
 
   wire s_sustenido_atual_uso = (modo_ativo == 2'd3) ?
     ((s_nota_esperada != 3'd0) ? s_sustenido_esperado : s_btn_sustenido_db) :

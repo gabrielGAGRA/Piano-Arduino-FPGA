@@ -99,8 +99,8 @@ module sync_rom_tb;
 
     // Teste 7: Enderecos das novas musicas populadas na Mega-ROM
     read_and_verify(14'd807,  30'h0, 1'b0, "JUMP_UP_SUPER_STAR_PRIMEIRA_NOTA");
-    read_and_verify(14'd1624, 30'h0, 1'b0, "NEW_DONK_CITY_PRIMEIRA_NOTA");
-    read_and_verify(14'd2094, 30'h0, 1'b0, "WII_SPORTS_PRIMEIRA_NOTA");
+    read_and_verify(14'd1355, 30'h0, 1'b0, "NEW_DONK_CITY_PRIMEIRA_NOTA");
+    read_and_verify(14'd1813, 30'h0, 1'b0, "WII_SPORTS_PRIMEIRA_NOTA");
 
     // Teste 8: Endereco alem do conteudo populado (pre-inicializado com zeros)
     read_and_verify(14'd3000, 30'h0, 1'b1, "ENDERECO_NAO_POPULADO_ZERO");

@@ -266,11 +266,11 @@ module fluxo_dados #(
         s_oitava_sensor_reg <= 3'd6;
       end else if (s_distancia_cm <= 10'd30) begin
         s_oitava_sensor_reg <= 3'd5;
-		end else if (s_distancia_cm <= 10'd40) begin
+      end else if (s_distancia_cm <= 10'd40) begin
         s_oitava_sensor_reg <= 3'd4;
       end else if (s_distancia_cm <= 10'd50) begin
         s_oitava_sensor_reg <= 3'd3;
-		end else if (s_distancia_cm <= 10'd60) begin
+      end else if (s_distancia_cm <= 10'd60) begin
         s_oitava_sensor_reg <= 3'd2;
       end else begin
         s_oitava_sensor_reg <= 3'd1;

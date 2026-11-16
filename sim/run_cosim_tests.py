@@ -55,6 +55,9 @@ RTL_SOURCES = [
     "sync_ram.v",
     "sync_rom.v",
     "tabela_offsets_partituras.v",
+    "interface_hcsr04.v",
+    "interface_hcsr04_fd.v",
+    "interface_hcsr04_uc.v",
 ]
 
 

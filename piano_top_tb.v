@@ -12,7 +12,7 @@ module piano_top_tb;
   localparam DebounceControle = 10;
   localparam ClockDivUart     = 4;
   localparam CiclosTick8ms    = 200;
-  localparam WatchdogMaxNs    = 5_000_000;
+  localparam WatchdogMaxNs    = 20_000_000;
 
   reg        clk;
   reg        reset_n;
@@ -23,6 +23,7 @@ module piano_top_tb;
   reg        btn_oitava_up_n;
   reg        btn_oitava_down_n;
   reg        btn_sustenido;
+  reg        hcsr04_echo;
 
   wire       saida_serial;
   wire       saida_serial_dashboard;
@@ -60,7 +61,7 @@ module piano_top_tb;
     .btn_oitava_up_n       (btn_oitava_up_n),
     .btn_oitava_down_n     (btn_oitava_down_n),
     .btn_sustenido         (btn_sustenido),
-    .hcsr04_echo           (1'b0),
+    .hcsr04_echo           (hcsr04_echo),
     .saida_serial          (saida_serial),
     .saida_serial_dashboard(saida_serial_dashboard),
     .servo_controle        (servo_controle),
@@ -92,6 +93,7 @@ module piano_top_tb;
       btn_oitava_up_n   <= 1'b1;
       btn_oitava_down_n <= 1'b1;
       btn_sustenido     <= 1'b0;
+      hcsr04_echo       <= 1'b0;
       reset_n           <= 1'b0;
       repeat (4) @(posedge clk);
       @(negedge clk);
@@ -542,6 +544,279 @@ module piano_top_tb;
     end
   endtask
 
+  task test_cenario_geral_ponta_a_ponta_semana4;
+    integer m_idx;
+    integer note_idx;
+    integer stim_idx;
+    time    t_on;
+    time    t_off;
+    reg [6:0] exp_notes[0:6];
+    reg [7:0] d0;
+    reg [7:0] d1;
+    reg [7:0] d2;
+    reg [7:0] d3;
+    reg [7:0] d4;
+    reg [7:0] d5;
+    reg [7:0] d6;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      exp_notes[0] = 7'd60; // Do4
+      exp_notes[1] = 7'd62; // Re4
+      exp_notes[2] = 7'd64; // Mi4
+      exp_notes[3] = 7'd65; // Fa4
+      exp_notes[4] = 7'd67; // Sol4
+      exp_notes[5] = 7'd69; // La4
+      exp_notes[6] = 7'd71; // Si4
+
+      // =======================================================================
+      // Etapa 1: Modo 0 Livre + Controle de Oitava por Ultrassom HC-SR04 + MIDI
+      // =======================================================================
+      // Ativa modo sensor por combo simultaneo (subir + descer oitava)
+      @(negedge clk);
+      btn_oitava_up_n   <= 1'b0;
+      btn_oitava_down_n <= 1'b0;
+      repeat (DebounceControle + 4) @(posedge clk);
+      @(negedge clk);
+      btn_oitava_up_n   <= 1'b1;
+      btn_oitava_down_n <= 1'b1;
+      repeat (DebounceControle + 4) @(posedge clk);
+
+      // Evita race condition caso hcsr04_trigger ja tenha subido durante o pulso
+      if (hcsr04_trigger !== 1'b1) begin
+        @(posedge hcsr04_trigger);
+      end
+      @(negedge hcsr04_trigger);
+
+      repeat (5) @(posedge clk);
+      @(negedge clk);
+      hcsr04_echo <= 1'b1;
+      repeat (15 * 2941) @(posedge clk);
+      @(negedge clk);
+      hcsr04_echo <= 1'b0;
+      repeat (10) @(posedge clk);
+
+      if (hex4_oitava !== 7'b0000010) begin
+        $display("[FALHA] %0t ns | HCSR04_HEX4: esperado 7'b0000010, obtido %b",
+          $time, hex4_oitava);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.fluxo_dados_inst.oitava_atual !== 3'd6) begin
+        $display("[FALHA] %0t ns | HCSR04_OITAVA: esperado 6, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.oitava_atual);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.metronomo_inst.habilita !== 1'b0) begin
+        $display("[FALHA] %0t ns | METRONOMO_MODO0: esperado 0, obtido %b",
+          $time, piano_top_inst.metronomo_inst.habilita);
+        errors = errors + 1;
+      end
+
+      // Pressiona Do na oitava 6 (MIDI 84 = 24'h90547F)
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      receive_and_verify_midi_packet({8'h90, 8'd84, 8'd127}, "HCSR04_OCT6_DO_NOTE_ON");
+
+      // Solta tecla Do (24'h805400)
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd84, 8'd0}, "HCSR04_OCT6_DO_NOTE_OFF");
+      repeat (10) @(posedge clk);
+
+      // Repete o combo de botoes para desativar o modo sensor (retorna oitava 4)
+      @(negedge clk);
+      btn_oitava_up_n   <= 1'b0;
+      btn_oitava_down_n <= 1'b0;
+      repeat (DebounceControle + 4) @(posedge clk);
+      @(negedge clk);
+      btn_oitava_up_n   <= 1'b1;
+      btn_oitava_down_n <= 1'b1;
+      repeat (DebounceControle + 4) @(posedge clk);
+
+      if (hex4_oitava !== 7'b0011001) begin
+        $display("[FALHA] %0t ns | DESATIVA_HCSR04_HEX4: esperado 7'b0011001, obtido %b",
+          $time, hex4_oitava);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.fluxo_dados_inst.oitava_atual !== 3'd4) begin
+        $display("[FALHA] %0t ns | DESATIVA_HCSR04_OITAVA: esperado 4, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.oitava_atual);
+        errors = errors + 1;
+      end
+
+      // =======================================================================
+      // Etapa 2: Modo 1 Aprendizado + Metronomo Servo + Audio MIDI + Dashboard
+      // =======================================================================
+      for (m_idx = 0; m_idx < 6; m_idx = m_idx + 1) begin
+        press_btn_musica();
+      end
+
+      press_btn_modo();
+      repeat (DebounceControle + 10) @(posedge clk);
+
+      if (piano_top_inst.fsm_modo_ativo !== 2'd1) begin
+        $display("[FALHA] %0t ns | MODO1_ATIVO: esperado 1, obtido %0d",
+          $time, piano_top_inst.fsm_modo_ativo);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.metronomo_inst.habilita !== 1'b1) begin
+        $display("[FALHA] %0t ns | METRONOMO_HAB: esperado 1, obtido %b",
+          $time, piano_top_inst.metronomo_inst.habilita);
+        errors = errors + 1;
+      end
+      if (servo_controle === 1'bx) begin
+        $display("[FALHA] %0t ns | SERVO_X: servo_controle e indefinido (X)", $time);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.metronomo_inst.posicao_servo !== 3'd3) begin
+        $display("[FALHA] %0t ns | METRONOMO_POS_INI: esperado 3, obtido %0d",
+          $time, piano_top_inst.metronomo_inst.posicao_servo);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.metronomo_inst.metronomo_uc_inst.state_reg === 2'd0) begin
+        $display("[FALHA] %0t ns | METRONOMO_STATE: esperado != 0, obtido %0d",
+          $time, piano_top_inst.metronomo_inst.metronomo_uc_inst.state_reg);
+        errors = errors + 1;
+      end
+
+      fork
+        // Branch 1: Audio MIDI (saida_serial)
+        begin
+          // Nota errada (Re4 = 62)
+          receive_and_verify_midi_packet({8'h90, 8'd62, 8'd127}, "M1_WRONG_NOTE_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd62, 8'd0},   "M1_WRONG_NOTE_OFF");
+
+          // 7 notas corretas da escala Do_Re_Mi_Fa (Do4..Si4)
+          for (note_idx = 0; note_idx < 7; note_idx = note_idx + 1) begin
+            receive_and_verify_midi_packet(
+              {8'h90, 1'b0, exp_notes[note_idx], 8'd127}, "M1_SCALE_NOTE_ON");
+            receive_and_verify_midi_packet(
+              {8'h80, 1'b0, exp_notes[note_idx], 8'd0},   "M1_SCALE_NOTE_OFF");
+          end
+        end
+
+        // Branch 2: Dashboard UART (saida_serial_dashboard)
+        begin
+          receive_dashboard_uart_byte(d0);
+          receive_dashboard_uart_byte(d1);
+          receive_dashboard_uart_byte(d2);
+          receive_dashboard_uart_byte(d3);
+          receive_dashboard_uart_byte(d4);
+          receive_dashboard_uart_byte(d5);
+          receive_dashboard_uart_byte(d6);
+        end
+
+        // Branch 3: Estimulos de teclado
+        begin
+          // Toca nota errada: Re (7'b0000010)
+          @(negedge clk);
+          gpio_keys <= 7'b0000010;
+          repeat (160) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (160) @(posedge clk);
+
+          // Toca as 7 notas corretas da escala
+          for (stim_idx = 0; stim_idx < 7; stim_idx = stim_idx + 1) begin
+            @(negedge clk);
+            gpio_keys <= (7'b0000001 << stim_idx);
+            repeat (160) @(posedge clk);
+            @(negedge clk);
+            gpio_keys <= 7'b0000000;
+            repeat (160) @(posedge clk);
+          end
+        end
+      join
+
+      if ({d0, d1, d2, d3, d4, d5, d6} !==
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd87, 8'h36}) begin
+        $display("[FALHA] %0t ns | DASH_PKT: exp AAD10607015736, got %02h%02h%02h%02h%02h%02h%02h",
+          $time, d0, d1, d2, d3, d4, d5, d6);
+        errors = errors + 1;
+      end
+
+      // =======================================================================
+      // Etapa 3: Modo 2 Gravacao em RAM M10K
+      // =======================================================================
+      for (m_idx = 0; m_idx < 36; m_idx = m_idx + 1) begin
+        press_btn_musica();
+      end
+
+      press_btn_modo();
+      repeat (DebounceControle + 10) @(posedge clk);
+
+      if (piano_top_inst.fsm_modo_ativo !== 2'd2) begin
+        $display("[FALHA] %0t ns | MODO2_ATIVO: esperado 2, obtido %0d",
+          $time, piano_top_inst.fsm_modo_ativo);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.metronomo_inst.habilita !== 1'b0) begin
+        $display("[FALHA] %0t ns | METRONOMO_MODO2: esperado 0, obtido %b",
+          $time, piano_top_inst.metronomo_inst.habilita);
+        errors = errors + 1;
+      end
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "SEMANA4_GRAV_NOTE_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "SEMANA4_GRAV_NOTE_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 4) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 4) @(posedge clk);
+        end
+      join
+
+      // =======================================================================
+      // Etapa 4: Modo 3 Demonstracao + Retorno Ciclico ao Modo 0
+      // =======================================================================
+      press_btn_modo();
+      repeat (DebounceControle + 10) @(posedge clk);
+
+      if (piano_top_inst.fsm_modo_ativo !== 2'd3) begin
+        $display("[FALHA] %0t ns | MODO3_ATIVO: esperado 3, obtido %0d",
+          $time, piano_top_inst.fsm_modo_ativo);
+        errors = errors + 1;
+      end
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "SEMANA4_DEMO_NOTE_ON");
+          t_on = $time;
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "SEMANA4_DEMO_NOTE_OFF");
+          t_off = $time;
+          if ((t_off - t_on) < (2 * CiclosTick8ms * ClkPeriodNs)) begin
+            $display("[FALHA] %0t ns | SEMANA4_DEMO_DURATION: exp >= %0d ns, obtido %0d ns",
+              $time, (2 * CiclosTick8ms * ClkPeriodNs), (t_off - t_on));
+            errors = errors + 1;
+          end
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+
+      repeat (20) @(posedge clk);
+      press_btn_modo();
+      repeat (DebounceControle + 10) @(posedge clk);
+
+      if (piano_top_inst.fsm_modo_ativo !== 2'd0) begin
+        $display("[FALHA] %0t ns | RETORNO_MODO0: esperado 0, obtido %0d",
+          $time, piano_top_inst.fsm_modo_ativo);
+        errors = errors + 1;
+      end
+    end
+  endtask
+
   initial begin
     $display("INICIANDO SIMULACAO: piano_top_tb");
 
@@ -550,6 +825,7 @@ module piano_top_tb;
     test_modo_aprendizado_acerto_erro();
     test_gravacao_e_demonstracao_ram();
     test_demonstracao_clair_de_lune_rom();
+    test_cenario_geral_ponta_a_ponta_semana4();
 
     #100;
     $display("RESUMO DOS TESTES");

@@ -35,6 +35,8 @@ RTL_SOURCES = [
     "metronomo_uc.v",
     "controle_servo_8.v",
     "gerenciador_midi_tx.v",
+    "gerenciador_midi_tx_fd.v",
+    "gerenciador_midi_tx_uc.v",
     "tx_serial_8N1.v",
     "tx_serial_8N1_fd.v",
     "tx_serial_8N1_uc.v",
@@ -59,6 +61,8 @@ RTL_SOURCES = [
     "interface_hcsr04_fd.v",
     "interface_hcsr04_uc.v",
     "avaliador_desempenho.v",
+    "avaliador_desempenho_fd.v",
+    "avaliador_desempenho_uc.v",
     "dashboard.v",
 ]
 

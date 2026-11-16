@@ -26,6 +26,8 @@ module fluxo_dados #(
   input  wire        escreve_ram,
   input  wire        conta_endereco,
   input  wire        zera_endereco,
+  input  wire        inc_acerto,
+  input  wire        inc_erro,
   output wire        saida_serial,
   output wire [6:0]  leds,
   output wire        mudou_modo,
@@ -34,6 +36,8 @@ module fluxo_dados #(
   output wire        acerto_nota,
   output wire        fim_musica,
   output wire        pulso_bpm,
+  output wire [7:0]  acertos,
+  output wire [7:0]  erros,
   output wire [9:0]  s_endereco_ram,
   output wire [2:0]  s_id_para_led,
   output wire [5:0]  out_sel_musica,
@@ -317,12 +321,41 @@ module fluxo_dados #(
     .Width (10)
   ) contador_m_addr (
     .clk  (clk),
-    .arst(1'b0),
+    .arst (1'b0),
     .sclr (zera_endereco),
     .conta(conta_endereco),
     .fim  (cont_fim),
     .meio (),
     .q    (s_endereco_ram)
+  );
+
+  // Contadores de Acertos e Erros (Modo Aprendizado)
+  wire sclr_contadores = zera_endereco || mudou_musica || (modo_ativo != 2'd1);
+
+  contador_m #(
+    .Modulo(256),
+    .Width (8)
+  ) contador_m_acertos (
+    .clk  (clk),
+    .arst (arst),
+    .sclr (sclr_contadores),
+    .conta(inc_acerto && (acertos != 8'd255)),
+    .fim  (),
+    .meio (),
+    .q    (acertos)
+  );
+
+  contador_m #(
+    .Modulo(256),
+    .Width (8)
+  ) contador_m_erros (
+    .clk  (clk),
+    .arst (arst),
+    .sclr (sclr_contadores),
+    .conta(inc_erro && (erros != 8'd255)),
+    .fim  (),
+    .meio (),
+    .q    (erros)
   );
 
   localparam RomAddrWidth = 14;

@@ -6,3 +6,4 @@ transcript
 *.vpp
 
 */__pycache__
+.venv/

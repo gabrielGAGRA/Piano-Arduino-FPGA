@@ -22,6 +22,7 @@ module piano_top #(
   input  wire       btn_sustenido,
   input  wire       hcsr04_echo,
   output wire       saida_serial,
+  output wire       saida_serial_dashboard,
   output wire       servo_controle,
   output wire       hcsr04_trigger,
   output wire [6:0] led_vermelho,
@@ -60,6 +61,10 @@ module piano_top #(
   wire        fsm_zera_end;
   wire        fsm_conta_end;
   wire        fsm_escreve_ram;
+  wire        fsm_inc_acerto;
+  wire        fsm_inc_erro;
+  wire [7:0]  fd_acertos;
+  wire [7:0]  fd_erros;
   wire        fd_tem_nota_ativa;
   wire        fd_acerto_nota;
   wire        fd_fim_musica;
@@ -99,6 +104,8 @@ module piano_top #(
     .escreve_ram      (fsm_escreve_ram),
     .zera_endereco    (fsm_zera_end),
     .conta_endereco   (fsm_conta_end),
+    .inc_acerto       (fsm_inc_acerto),
+    .inc_erro         (fsm_inc_erro),
     .estado_hex       ()
   );
 
@@ -126,6 +133,8 @@ module piano_top #(
     .escreve_ram      (fsm_escreve_ram),
     .conta_endereco   (fsm_conta_end),
     .zera_endereco    (fsm_zera_end),
+    .inc_acerto       (fsm_inc_acerto),
+    .inc_erro         (fsm_inc_erro),
     .saida_serial     (saida_serial),
     .leds             (fd_leds_cifra),
     .mudou_modo       (fd_mudou_modo),
@@ -134,6 +143,8 @@ module piano_top #(
     .acerto_nota      (fd_acerto_nota),
     .fim_musica       (fd_fim_musica),
     .pulso_bpm        (fd_pulso_bpm),
+    .acertos          (fd_acertos),
+    .erros            (fd_erros),
     .s_endereco_ram   (),
     .s_id_para_led    (fd_id_nota),
     .out_sel_musica   (s_sel_musica),
@@ -149,6 +160,19 @@ module piano_top #(
     .t_passo_metronomo(fd_t_passo_metronomo)
   );
 
+  // Avaliador de desempenho do Modo Assistido com envio serial de metricas.
+  avaliador_desempenho avaliador_desempenho_inst (
+    .clk          (clk),
+    .arst         (arst),
+    .modo_ativo   (fsm_modo_ativo),
+    .sel_musica   (s_sel_musica),
+    .fim_musica   (fd_fim_musica),
+    .acertos      (fd_acertos),
+    .erros        (fd_erros),
+    .score        (),
+    .saida_serial (saida_serial_dashboard)
+  );
+
   // Metronomo Mecanico com Servomotor SG90
   metronomo #(
     .ClockFreq(50_000_000)
@@ -162,8 +186,8 @@ module piano_top #(
     .posicao_servo ()
   );
 
-  // Painel Decodificador de Displays e LEDs
-  painel_display_leds painel_display_leds_inst (
+  // Dashboard central do instrumento: estado do modo, oitava, musica e nota.
+  dashboard dashboard_inst (
     .modo_ativo        (fsm_modo_ativo),
     .oitava_atual      (s_oitava_atual),
     .sustenido_atual   (s_sustenido_atual),

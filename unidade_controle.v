@@ -19,27 +19,32 @@ module unidade_controle (
   output reg        escreve_ram,
   output reg        zera_endereco,
   output reg        conta_endereco,
+  output reg        inc_acerto,
+  output reg        inc_erro,
   output reg  [4:0] estado_hex
 );
 
   localparam [4:0]
-    kInicial        = 5'd0,
-    kLivre          = 5'd1,
-    kIniciaMusica   = 5'd2,
-    kEsperaNota     = 5'd3,
-    kComparaNota    = 5'd4,
-    kProximo        = 5'd5,
-    kEsperaSoltar   = 5'd6,
-    kFimMusicaSt    = 5'd7,
-    kLeRamModo1     = 5'd16,
-    kIniciaGravacao = 5'd8,
-    kGravEsperaNota = 5'd9,
-    kGravArmazena   = 5'd10,
-    kGravProximo    = 5'd11,
-    kGravSoltar     = 5'd12,
-    kIniciaDemo     = 5'd15,
-    kDemoTocaNota   = 5'd13,
-    kDemoProximo    = 5'd14;
+    kInicial          = 5'd0,
+    kLivre            = 5'd1,
+    kIniciaMusica     = 5'd2,
+    kEsperaNota       = 5'd3,
+    kComparaNota      = 5'd4,
+    kProximo          = 5'd5,
+    kEsperaSoltar     = 5'd6,
+    kFimMusicaSt      = 5'd7,
+    kIniciaGravacao   = 5'd8,
+    kGravEsperaNota   = 5'd9,
+    kGravArmazena     = 5'd10,
+    kGravProximo      = 5'd11,
+    kGravSoltar       = 5'd12,
+    kDemoTocaNota     = 5'd13,
+    kDemoProximo      = 5'd14,
+    kIniciaDemo       = 5'd15,
+    kLeRamModo1       = 5'd16,
+    kIncAcerto        = 5'd17,
+    kIncErro          = 5'd18,
+    kEsperaSoltarErro = 5'd19;
 
   reg [4:0] state_reg;
   reg [4:0] state_next;
@@ -58,6 +63,8 @@ module unidade_controle (
     escreve_ram    = 1'b0;
     zera_endereco  = 1'b0;
     conta_endereco = 1'b0;
+    inc_acerto     = 1'b0;
+    inc_erro       = 1'b0;
     estado_hex     = 5'd0;
 
     case (state_reg)
@@ -81,7 +88,7 @@ module unidade_controle (
         modo_ativo    = 2'd1;
         zera_endereco = 1'b1;
         estado_hex    = 5'h1;
-        state_next    = kEsperaNota;
+        state_next    = kLeRamModo1;
       end
 
       kEsperaNota: begin
@@ -91,6 +98,8 @@ module unidade_controle (
           state_next = kIniciaGravacao;
         end else if (mudou_musica) begin
           state_next = kIniciaMusica;
+        end else if (fim_musica) begin
+          state_next = kFimMusicaSt;
         end else if (tem_nota_ativa) begin
           state_next = kComparaNota;
         end
@@ -104,9 +113,24 @@ module unidade_controle (
         end else if (mudou_musica) begin
           state_next = kIniciaMusica;
         end else if (acerto_nota) begin
-          state_next = kEsperaSoltar;
+          state_next = kIncAcerto;
         end else if (!tem_nota_ativa) begin
           state_next = kEsperaNota;
+        end else begin
+          state_next = kIncErro;
+        end
+      end
+
+      kIncAcerto: begin
+        modo_ativo = 2'd1;
+        estado_hex = 5'h1;
+        inc_acerto = 1'b1;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
+        end else begin
+          state_next = kEsperaSoltar;
         end
       end
 
@@ -126,6 +150,31 @@ module unidade_controle (
         end
       end
 
+      kIncErro: begin
+        modo_ativo = 2'd1;
+        estado_hex = 5'h1;
+        inc_erro   = 1'b1;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
+        end else begin
+          state_next = kEsperaSoltarErro;
+        end
+      end
+
+      kEsperaSoltarErro: begin
+        modo_ativo = 2'd1;
+        estado_hex = 5'h1;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
+        end else if (!tem_nota_ativa) begin
+          state_next = kEsperaNota;
+        end
+      end
+
       kProximo: begin
         modo_ativo     = 2'd1;
         estado_hex     = 5'h1;
@@ -136,7 +185,13 @@ module unidade_controle (
       kLeRamModo1: begin
         modo_ativo = 2'd1;
         estado_hex = 5'h1;
-        state_next = kEsperaNota;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
+        end else begin
+          state_next = kEsperaNota;
+        end
       end
 
       kFimMusicaSt: begin
@@ -144,6 +199,8 @@ module unidade_controle (
         estado_hex = 5'h1;
         if (mudou_modo) begin
           state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
         end
       end
 

@@ -255,9 +255,9 @@ module fluxo_dados #(
   wire [11:0] s_distancia;
   wire s_sensor_pronto;
   wire [9:0] s_distancia_cm =
-    (s_distancia[11:8] * 10'd100) +
-    (s_distancia[7:4] * 10'd10) +
-    s_distancia[3:0];
+    ({6'd0, s_distancia[11:8]} * 10'd100) +
+    ({6'd0, s_distancia[7:4]} * 10'd10) +
+    {6'd0, s_distancia[3:0]};
   reg [2:0] s_oitava_sensor_reg;
 
   always @(posedge clk or posedge arst) begin

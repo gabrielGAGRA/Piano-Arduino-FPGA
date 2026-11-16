@@ -38,13 +38,14 @@ module piano_top #(
 );
 
   // Sincronizador de reset com 2 flip-flops
+  wire reset = ~reset_n;
   wire arst;
   sincronizador #(
     .Width    (1),
     .InitValue(1'b1)
   ) sincronizador_reset (
     .clk     (clk),
-    .arst    (!reset_n),
+    .arst    (reset),
     .async_in(1'b0),
     .sync_out(arst)
   );
@@ -161,7 +162,9 @@ module piano_top #(
   );
 
   // Avaliador de desempenho do Modo Assistido com envio serial de metricas.
-  avaliador_desempenho avaliador_desempenho_inst (
+  avaliador_desempenho #(
+    .ClockDivUart(ClockDivUart)
+  ) avaliador_desempenho_inst (
     .clk          (clk),
     .arst         (arst),
     .modo_ativo   (fsm_modo_ativo),

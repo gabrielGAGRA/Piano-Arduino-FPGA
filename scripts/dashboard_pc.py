@@ -47,28 +47,31 @@ NOMES_MUSICAS = [
     "Homem Aranha 1900",          # 15
     "Imperial March",             # 16
     "Interestelar",               # 17
-    "Korobeiniki (Tetris)",       # 18
-    "Lugar Ao Sol",               # 19
-    "Magnetic",                   # 20
-    "Mario Bros",                 # 21
-    "Minecraft (Sweden)",         # 22
-    "Moonlight Sonata (3rd Mov)", # 23
-    "Morning Flower",             # 24
-    "Never Gonna Give You Up",    # 25
-    "Numb",                       # 26
-    "Pink Panther",               # 27
-    "Radio Ga Ga",                # 28
-    "Sadness And Sorrow",         # 29
-    "Super Idol",                 # 30
-    "Susanne",                    # 31
-    "Sweet Child O Mine",         # 32
-    "Take On Me",                 # 33
-    "Trem Das Onze",              # 34
-    "Undertale (Megalovania)",    # 35
-    "We Are Number One",          # 36
-    "When Love Takes Over",       # 37
-    "Zelda (Lost Woods)",         # 38
-    "Musica Gravada pelo Usuario" # 39
+    "Jump Up Super Star",         # 18
+    "Korobeiniki (Tetris)",       # 19
+    "Lugar Ao Sol",               # 20
+    "Magnetic",                   # 21
+    "Mario Bros",                 # 22
+    "Minecraft (Sweden)",         # 23
+    "Moonlight Sonata (3rd Mov)", # 24
+    "Morning Flower",             # 25
+    "Never Gonna Give You Up",    # 26
+    "New Donk City",              # 27
+    "Numb",                       # 28
+    "Pink Panther",               # 29
+    "Radio Ga Ga",                # 30
+    "Sadness And Sorrow",         # 31
+    "Super Idol",                 # 32
+    "Susanne",                    # 33
+    "Sweet Child O Mine",         # 34
+    "Take On Me",                 # 35
+    "Trem Das Onze",              # 36
+    "Undertale (Megalovania)",    # 37
+    "We Are Number One",          # 38
+    "When Love Takes Over",       # 39
+    "Wii Sports",                 # 40
+    "Zelda (Lost Woods)",         # 41
+    "Musica Gravada pelo Usuario" # 42
 ]
 
 SCRIPTS_DIR = Path(__file__).resolve().parent

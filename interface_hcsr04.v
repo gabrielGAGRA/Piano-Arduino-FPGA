@@ -2,6 +2,7 @@
  * Interface HC-SR04 com disparo, medicao de distancia e timeout.
  */
 
+`timescale 1ns / 1ps
 `default_nettype none
 
 module interface_hcsr04 #(

@@ -31,6 +31,7 @@ NOMES_MUSICAS = [
     "Homem Aranha 1900",
     "Imperial March",
     "Interestelar",
+    "Jump Up Super Star",
     "Korobeiniki (Tetris)",
     "Lugar Ao Sol",
     "Magnetic",
@@ -39,6 +40,7 @@ NOMES_MUSICAS = [
     "Moonlight Sonata (3rd Mov)",
     "Morning Flower",
     "Never Gonna Give You Up",
+    "New Donk City",
     "Numb",
     "Pink Panther",
     "Radio Ga Ga",
@@ -51,6 +53,7 @@ NOMES_MUSICAS = [
     "Undertale (Megalovania)",
     "We Are Number One",
     "When Love Takes Over",
+    "Wii Sports",
     "Zelda (Lost Woods)",
     "Musica Gravada pelo Usuario",
 ]

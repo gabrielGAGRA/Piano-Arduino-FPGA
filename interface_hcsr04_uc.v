@@ -3,6 +3,7 @@
  *              ultrassonico de distancia HC-SR04 com suporte a timeout.
  */
 
+`timescale 1ns / 1ps
 `default_nettype none
 
 module interface_hcsr04_uc (

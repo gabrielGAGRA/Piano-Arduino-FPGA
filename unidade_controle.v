@@ -179,7 +179,13 @@ module unidade_controle (
         modo_ativo     = 2'd1;
         estado_hex     = 5'h1;
         conta_endereco = 1'b1;
-        state_next     = kLeRamModo1;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else if (mudou_musica) begin
+          state_next = kIniciaMusica;
+        end else begin
+          state_next = kLeRamModo1;
+        end
       end
 
       kLeRamModo1: begin
@@ -288,7 +294,7 @@ module unidade_controle (
       end
 
       default: begin
-        state_next = kInicial;
+        state_next = 5'bxxxxx;
       end
     endcase
   end

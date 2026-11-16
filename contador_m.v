@@ -18,9 +18,10 @@ module contador_m #(
   output wire             meio
 );
 
-  localparam [Width-1:0] MVal  = Modulo[Width-1:0];
-  localparam [Width-1:0] MFim  = (Modulo > 0) ? (Modulo - 1) : 0;
-  localparam [Width-1:0] MMeio = (Modulo > 1) ? ((Modulo / 2) - 1) : 0;
+  localparam [31:0]      MFimFull  = (Modulo > 0) ? (Modulo - 1) : 0;
+  localparam [31:0]      MMeioFull = (Modulo > 1) ? ((Modulo / 2) - 1) : 0;
+  localparam [Width-1:0] MFim      = MFimFull[Width-1:0];
+  localparam [Width-1:0] MMeio     = MMeioFull[Width-1:0];
 
   always @(posedge clk or posedge arst) begin
     if (arst) begin

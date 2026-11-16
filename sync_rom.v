@@ -16,7 +16,7 @@ module sync_rom #(
 );
 
   (* ramstyle = "M10K" *) reg [DataWidth-1:0] rom [0:(2**AddrWidth)-1];
-  
+
   integer i;
   initial begin
     for (i = 0; (i < (2**AddrWidth)) && (i < 32'd4050); i = i + 1) begin

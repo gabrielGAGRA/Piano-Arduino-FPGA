@@ -93,6 +93,16 @@ class TestHistoricoDashboard(unittest.TestCase):
         self.assertEqual(len(recarregado["4"]["execucoes"]), 10)
         self.assertEqual(len(recarregado["6"]["execucoes"]), 3)
 
+    def test_catalogo_43_musicas_sincronizado(self):
+        self.assertEqual(len(dashboard_pc.NOMES_MUSICAS), 43)
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[4], "Clair de Lune")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[6], "Do Re Mi Fa")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[18], "Jump Up Super Star")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[27], "New Donk City")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[40], "Wii Sports")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[41], "Zelda (Lost Woods)")
+        self.assertEqual(dashboard_pc.NOMES_MUSICAS[42], "Musica Gravada pelo Usuario")
+
 
 if __name__ == "__main__":
     unittest.main()

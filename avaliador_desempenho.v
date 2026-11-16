@@ -5,7 +5,9 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module avaliador_desempenho (
+module avaliador_desempenho #(
+  parameter ClockDivUart = 434
+)(
   input  wire        clk,
   input  wire        arst,
   input  wire [1:0]  modo_ativo,
@@ -28,6 +30,7 @@ module avaliador_desempenho (
   reg [1:0] estado_next;
   reg [2:0] byte_idx_reg;
   reg [2:0] byte_idx_next;
+  reg [7:0] score_reg;
 
   reg [7:0] byte0_reg;
   reg [7:0] byte1_reg;
@@ -39,7 +42,7 @@ module avaliador_desempenho (
 
   reg [7:0]   tx_dados_byte;
   reg [7:0]   score_calc;
-  wire        tx_partida;
+  reg         tx_partida;
   wire        tx_pronto;
   wire        em_modo_assistido;
   wire        envio_necessario;
@@ -53,9 +56,7 @@ module avaliador_desempenho (
   assign denom_score = {1'b0, acertos} + {1'b0, erros};
   assign score_num   = (denom_score == 9'd0) ? 24'd0 :
     ({16'd0, acertos} * 24'd100) / {15'd0, denom_score};
-  assign score       = score_calc;
-
-  assign tx_partida  = (estado_reg == kSendByte);
+  assign score       = score_reg;
 
   always @* begin
     if (denom_score == 9'd0) begin
@@ -78,35 +79,55 @@ module avaliador_desempenho (
     endcase
   end
 
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      estado_reg <= kIdle;
+    end else begin
+      estado_reg <= estado_next;
+    end
+  end
+
   always @* begin
     estado_next   = estado_reg;
     byte_idx_next = byte_idx_reg;
+    tx_partida    = 1'b0;
 
-    if (estado_reg == kIdle) begin
-      if (envio_necessario) begin
-        byte_idx_next = 3'd0;
-        estado_next   = kSendByte;
-      end
-    end else if (estado_reg == kSendByte) begin
-      estado_next = kWaitByte;
-    end else if (estado_reg == kWaitByte) begin
-      if (tx_pronto) begin
-        if (byte_idx_reg == 3'd6) begin
+    case (estado_reg)
+      kIdle: begin
+        if (envio_necessario) begin
           byte_idx_next = 3'd0;
-          estado_next   = kIdle;
-        end else begin
-          byte_idx_next = byte_idx_reg + 3'd1;
           estado_next   = kSendByte;
         end
       end
-    end
+
+      kSendByte: begin
+        tx_partida  = 1'b1;
+        estado_next = kWaitByte;
+      end
+
+      kWaitByte: begin
+        if (tx_pronto) begin
+          if (byte_idx_reg == 3'd6) begin
+            byte_idx_next = 3'd0;
+            estado_next   = kIdle;
+          end else begin
+            byte_idx_next = byte_idx_reg + 3'd1;
+            estado_next   = kSendByte;
+          end
+        end
+      end
+
+      default: begin
+        estado_next = 2'bxx;
+      end
+    endcase
   end
 
   always @(posedge clk or posedge arst) begin
     if (arst) begin
       fim_musica_prev_reg <= 1'b0;
-      estado_reg          <= kIdle;
       byte_idx_reg        <= 3'd0;
+      score_reg           <= 8'd0;
       byte0_reg           <= 8'd0;
       byte1_reg           <= 8'd0;
       byte2_reg           <= 8'd0;
@@ -116,8 +137,8 @@ module avaliador_desempenho (
       byte6_reg           <= 8'd0;
     end else begin
       fim_musica_prev_reg <= fim_musica;
-      estado_reg          <= estado_next;
       byte_idx_reg        <= byte_idx_next;
+      score_reg           <= score_calc;
 
       if ((estado_reg == kIdle) && envio_necessario) begin
         byte0_reg <= 8'hAA;
@@ -132,7 +153,7 @@ module avaliador_desempenho (
   end
 
   tx_serial_8N1 #(
-    .ClockDiv(434)
+    .ClockDiv(ClockDivUart)
   ) tx_serial_8N1_inst (
     .clk          (clk),
     .arst         (arst),

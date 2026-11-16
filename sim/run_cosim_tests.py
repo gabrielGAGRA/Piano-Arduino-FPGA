@@ -58,6 +58,8 @@ RTL_SOURCES = [
     "interface_hcsr04.v",
     "interface_hcsr04_fd.v",
     "interface_hcsr04_uc.v",
+    "avaliador_desempenho.v",
+    "dashboard.v",
 ]
 
 
@@ -252,8 +254,11 @@ module lockstep_tb;
     .btn_oitava_up_n    (btn_oitava_up_n),
     .btn_oitava_down_n  (btn_oitava_down_n),
     .btn_sustenido      (btn_sustenido),
+    .hcsr04_echo        (1'b0),
     .saida_serial       (saida_serial),
+    .saida_serial_dashboard(),
     .servo_controle     (servo_controle),
+    .hcsr04_trigger     (),
     .led_vermelho       (led_vermelho),
     .led_sustenido      (led_sustenido),
     .led_oitava_up      (led_oitava_up),
@@ -426,7 +431,9 @@ def run_modelsim_piano_top_tb(repo_root: Path) -> bool:
         capture_output=True,
         text=True,
     )
-    if "TODOS OS TESTES PASSARAM!" not in res_vsim.stdout:
+    if ("ALL TESTS PASSED!" not in res_vsim.stdout) and (
+        "TODOS OS TESTES PASSARAM!" not in res_vsim.stdout
+    ):
       print("[FALHA] piano_top_tb.v falhou no ModelSim:", file=sys.stderr)
       print(res_vsim.stdout, file=sys.stderr)
       return False

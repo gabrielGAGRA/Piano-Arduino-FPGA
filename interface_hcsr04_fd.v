@@ -3,6 +3,7 @@
  *              de distancia HC-SR04 com deteccao de timeout.
  */
 
+`timescale 1ns / 1ps
 `default_nettype none
 
 module interface_hcsr04_fd #(

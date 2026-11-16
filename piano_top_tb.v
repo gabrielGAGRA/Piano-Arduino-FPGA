@@ -8,11 +8,11 @@
 module piano_top_tb;
 
   localparam ClkPeriodNs      = 20;
-  localparam DebounceTecla    = 46;
-  localparam DebounceControle = 36;
+  localparam DebounceTecla    = 10;
+  localparam DebounceControle = 10;
   localparam ClockDivUart     = 4;
-  localparam CiclosTick8ms    = 3_686;
-  localparam WatchdogMaxNs    = 50_000_000;
+  localparam CiclosTick8ms    = 200;
+  localparam WatchdogMaxNs    = 5_000_000;
 
   reg        clk;
   reg        reset_n;
@@ -25,7 +25,9 @@ module piano_top_tb;
   reg        btn_sustenido;
 
   wire       saida_serial;
+  wire       saida_serial_dashboard;
   wire       servo_controle;
+  wire       hcsr04_trigger;
   wire [6:0] led_vermelho;
   wire       led_sustenido;
   wire       led_oitava_up;
@@ -49,28 +51,30 @@ module piano_top_tb;
     .ClockDivUart   (ClockDivUart),
     .CiclosTick8ms  (CiclosTick8ms)
   ) piano_top_inst (
-    .clk                (clk),
-    .reset_n            (reset_n),
-    .gpio_keys          (gpio_keys),
-    .btn_modo_n         (btn_modo_n),
-    .btn_musica_n       (btn_musica_n),
-    .btn_intensidade_n  (btn_intensidade_n),
-    .btn_oitava_up_n    (btn_oitava_up_n),
-    .btn_oitava_down_n  (btn_oitava_down_n),
-    .btn_sustenido      (btn_sustenido),
-    .saida_serial       (saida_serial),
-    .saida_serial_dashboard(),
-    .servo_controle     (servo_controle),
-    .led_vermelho       (led_vermelho),
-    .led_sustenido      (led_sustenido),
-    .led_oitava_up      (led_oitava_up),
-    .led_oitava_down    (led_oitava_down),
-    .hex5_modo          (hex5_modo),
-    .hex4_oitava        (hex4_oitava),
-    .hex3_musica_dezena (hex3_musica_dezena),
-    .hex2_musica_unidade(hex2_musica_unidade),
-    .hex1_nota          (hex1_nota),
-    .hex0_sustenido     (hex0_sustenido)
+    .clk                   (clk),
+    .reset_n               (reset_n),
+    .gpio_keys             (gpio_keys),
+    .btn_modo_n            (btn_modo_n),
+    .btn_musica_n          (btn_musica_n),
+    .btn_intensidade_n     (btn_intensidade_n),
+    .btn_oitava_up_n       (btn_oitava_up_n),
+    .btn_oitava_down_n     (btn_oitava_down_n),
+    .btn_sustenido         (btn_sustenido),
+    .hcsr04_echo           (1'b0),
+    .saida_serial          (saida_serial),
+    .saida_serial_dashboard(saida_serial_dashboard),
+    .servo_controle        (servo_controle),
+    .hcsr04_trigger        (hcsr04_trigger),
+    .led_vermelho          (led_vermelho),
+    .led_sustenido         (led_sustenido),
+    .led_oitava_up         (led_oitava_up),
+    .led_oitava_down       (led_oitava_down),
+    .hex5_modo             (hex5_modo),
+    .hex4_oitava           (hex4_oitava),
+    .hex3_musica_dezena    (hex3_musica_dezena),
+    .hex2_musica_unidade   (hex2_musica_unidade),
+    .hex1_nota             (hex1_nota),
+    .hex0_sustenido        (hex0_sustenido)
   );
 
   initial begin
@@ -93,6 +97,12 @@ module piano_top_tb;
       @(negedge clk);
       reset_n           <= 1'b1;
       repeat (6) @(posedge clk);
+      #1;
+      if (saida_serial === 1'bx || saida_serial_dashboard === 1'bx ||
+          hcsr04_trigger === 1'bx || led_vermelho === 7'bxxxxxxx) begin
+        $display("[FATAL] %0t ns: Saida X apos reset em piano_top_tb.", $time);
+        $finish;
+      end
     end
   endtask
 
@@ -396,16 +406,52 @@ module piano_top_tb;
     end
   endtask
 
+  task receive_dashboard_uart_byte(
+    output [7:0] rx_byte
+  );
+    integer bit_idx;
+    begin
+      @(negedge saida_serial_dashboard);
+      repeat (ClockDivUart / 2) @(posedge clk);
+      #1;
+      if (saida_serial_dashboard !== 1'b0) begin
+        $display("[FAIL] %0t ns | DASH_UART_START: exp 0b0, got 0b%0b",
+          $time, saida_serial_dashboard);
+        errors = errors + 1;
+      end
+      for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+        repeat (ClockDivUart) @(posedge clk);
+        #1;
+        rx_byte[bit_idx] = saida_serial_dashboard;
+      end
+      repeat (ClockDivUart) @(posedge clk);
+      #1;
+      if (saida_serial_dashboard !== 1'b1) begin
+        $display("[FAIL] %0t ns | DASH_UART_STOP: exp 0b1, got 0b%0b",
+          $time, saida_serial_dashboard);
+        errors = errors + 1;
+      end
+    end
+  endtask
+
   task test_modo_aprendizado_acerto_erro;
     integer m_idx;
+    integer note_idx;
     reg [2:0] expected_nota;
     reg [6:0] wrong_key;
     reg [6:0] correct_key;
+    reg [7:0] d0;
+    reg [7:0] d1;
+    reg [7:0] d2;
+    reg [7:0] d3;
+    reg [7:0] d4;
+    reg [7:0] d5;
+    reg [7:0] d6;
     begin
       tests_run = tests_run + 1;
       setup();
 
-      // Seleciona Musica 6: Do_Re_Mi_Fa (offset 799 na ROM: Dó, Ré, Mi, Fá...)
+      // Seleciona Musica 6: Do_Re_Mi_Fa (offset 799 na ROM: Do, Re, Mi, Fa, Sol, La, Si)
       for (m_idx = 0; m_idx < 6; m_idx = m_idx + 1) begin
         press_btn_musica();
       end
@@ -418,8 +464,8 @@ module piano_top_tb;
 
       // Na musica 6, a primeira nota e Do (nota_id = 1)
       if (expected_nota == 3'd1) begin
-        correct_key = 7'b0000001; // Dó
-        wrong_key   = 7'b0000010; // Ré (erro)
+        correct_key = 7'b0000001; // Do
+        wrong_key   = 7'b0000010; // Re (erro)
       end else begin
         correct_key = (7'b0000001 << (expected_nota - 3'd1));
         wrong_key   = 7'b0000010;
@@ -447,7 +493,7 @@ module piano_top_tb;
       gpio_keys <= 7'b0000000;
       repeat (DebounceTecla + 20) @(posedge clk);
 
-      // 2. Toca nota correta
+      // 2. Toca primeira nota correta (Do)
       @(negedge clk);
       gpio_keys <= correct_key;
       repeat (DebounceTecla + 20) @(posedge clk);
@@ -463,6 +509,36 @@ module piano_top_tb;
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       repeat (DebounceTecla + 20) @(posedge clk);
+
+      // 3. Toca notas restantes da escala (Re..Si) e valida pacote UART do dashboard
+      fork
+        begin
+          receive_dashboard_uart_byte(d0);
+          receive_dashboard_uart_byte(d1);
+          receive_dashboard_uart_byte(d2);
+          receive_dashboard_uart_byte(d3);
+          receive_dashboard_uart_byte(d4);
+          receive_dashboard_uart_byte(d5);
+          receive_dashboard_uart_byte(d6);
+        end
+        begin
+          for (note_idx = 1; note_idx < 7; note_idx = note_idx + 1) begin
+            @(negedge clk);
+            gpio_keys <= (7'b0000001 << note_idx);
+            repeat (DebounceTecla + 20) @(posedge clk);
+            @(negedge clk);
+            gpio_keys <= 7'b0000000;
+            repeat (DebounceTecla + 20) @(posedge clk);
+          end
+        end
+      join
+
+      if ({d0, d1, d2, d3, d4, d5, d6} !==
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd87, 8'h36}) begin
+        $display("[FAIL] %0t ns | DASH_PKT: exp AAD10607015736, got %02h%02h%02h%02h%02h%02h%02h",
+          $time, d0, d1, d2, d3, d4, d5, d6);
+        errors = errors + 1;
+      end
     end
   endtask
 
@@ -480,9 +556,9 @@ module piano_top_tb;
     $display("Testes executados: %0d", tests_run);
     $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
+      $display("RESULT: ALL TESTS PASSED! (Tests: %0d)", tests_run);
     end else begin
-      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
+      $display("RESULT: TESTBENCH FAILED! Errors: %0d", errors);
     end
 
     $finish;

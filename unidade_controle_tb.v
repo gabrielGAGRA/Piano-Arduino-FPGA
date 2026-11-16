@@ -73,6 +73,13 @@ module unidade_controle_tb;
       @(negedge clk);
       arst              <= 1'b0;
       repeat (2) @(posedge clk);
+      #1;
+      if (modo_ativo === 2'bxx || escreve_ram === 1'bx || zera_endereco === 1'bx ||
+          conta_endereco === 1'bx || inc_acerto === 1'bx || inc_erro === 1'bx ||
+          estado_hex === 5'bxxxxx) begin
+        $display("[FATAL] %0t ns: Saida X apos reset em unidade_controle_tb.", $time);
+        $finish;
+      end
     end
   endtask
 
@@ -308,9 +315,9 @@ module unidade_controle_tb;
     $display("Testes executados: %0d", tests_run);
     $display("Erros encontrados: %0d", errors);
     if (errors == 0) begin
-      $display("RESULTADO: TODOS OS TESTES PASSARAM!");
+      $display("RESULT: ALL TESTS PASSED! (Tests: %0d)", tests_run);
     end else begin
-      $display("RESULTADO: TESTBENCH FALHOU com %0d erro(s)!", errors);
+      $display("RESULT: TESTBENCH FAILED! Errors: %0d", errors);
     end
 
     $finish;

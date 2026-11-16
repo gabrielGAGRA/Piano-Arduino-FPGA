@@ -8,11 +8,11 @@
 module piano_top_tb;
 
   localparam ClkPeriodNs      = 20;
-  localparam DebounceTecla    = 4;
-  localparam DebounceControle = 4;
-  localparam ClockDivUart     = 2;
-  localparam CiclosTick8ms    = 60;
-  localparam WatchdogMaxNs    = 4_000_000;
+  localparam DebounceTecla    = 46;
+  localparam DebounceControle = 36;
+  localparam ClockDivUart     = 4;
+  localparam CiclosTick8ms    = 3_686;
+  localparam WatchdogMaxNs    = 50_000_000;
 
   reg        clk;
   reg        reset_n;
@@ -167,6 +167,28 @@ module piano_top_tb;
     end
   endtask
 
+  task press_btn_oitava_up;
+    begin
+      @(negedge clk);
+      btn_oitava_up_n <= 1'b0;
+      repeat (DebounceControle + 3) @(posedge clk);
+      @(negedge clk);
+      btn_oitava_up_n <= 1'b1;
+      repeat (DebounceControle + 3) @(posedge clk);
+    end
+  endtask
+
+  task press_btn_oitava_down;
+    begin
+      @(negedge clk);
+      btn_oitava_down_n <= 1'b0;
+      repeat (DebounceControle + 3) @(posedge clk);
+      @(negedge clk);
+      btn_oitava_down_n <= 1'b1;
+      repeat (DebounceControle + 3) @(posedge clk);
+    end
+  endtask
+
   task test_modo_livre_midi;
     begin
       tests_run = tests_run + 1;
@@ -182,6 +204,98 @@ module piano_top_tb;
 
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "LIVRE_NOTE_OFF_C4");
       repeat (10) @(posedge clk);
+
+      // Teste de alternancia rapida entre notas distintas: C4 -> D4
+      // Deve enviar estritamente Note On(D4) sem disparar Note On fantasma de C4
+      @(negedge clk);
+      gpio_keys <= 7'b0000010; // Tecla D4
+
+      receive_and_verify_midi_packet({8'h90, 8'd62, 8'd127}, "LIVRE_NOTE_ON_D4_SEM_FANTASMA");
+
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+
+      receive_and_verify_midi_packet({8'h80, 8'd62, 8'd0}, "LIVRE_NOTE_OFF_D4");
+      repeat (10) @(posedge clk);
+    end
+  endtask
+
+  task test_todas_notas_e_sustenidos_midi;
+    integer k;
+    reg [6:0] exp_nat[0:6];
+    reg [6:0] exp_sharp[0:6];
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      exp_nat[0] = 7'd60; // Do4
+      exp_nat[1] = 7'd62; // Re4
+      exp_nat[2] = 7'd64; // Mi4
+      exp_nat[3] = 7'd65; // Fa4
+      exp_nat[4] = 7'd67; // Sol4
+      exp_nat[5] = 7'd69; // La4
+      exp_nat[6] = 7'd71; // Si4
+
+      exp_sharp[0] = 7'd61; // Do#4
+      exp_sharp[1] = 7'd63; // Re#4
+      exp_sharp[2] = 7'd65; // Mi#4 (Fa4)
+      exp_sharp[3] = 7'd66; // Fa#4
+      exp_sharp[4] = 7'd68; // Sol#4
+      exp_sharp[5] = 7'd70; // La#4
+      exp_sharp[6] = 7'd72; // Si#4 (Do5)
+
+      // 1. Testa todas as 7 teclas naturais em Oitava 4
+      for (k = 0; k < 7; k = k + 1) begin
+        @(negedge clk);
+        gpio_keys <= (7'b0000001 << k);
+        receive_and_verify_midi_packet({8'h90, 1'b0, exp_nat[k], 8'd127}, "NAT_NOTE_ON");
+
+        @(negedge clk);
+        gpio_keys <= 7'b0000000;
+        receive_and_verify_midi_packet({8'h80, 1'b0, exp_nat[k], 8'd0}, "NAT_NOTE_OFF");
+        repeat (10) @(posedge clk);
+      end
+
+      // 2. Testa todas as 7 teclas com sustenido (#) em Oitava 4
+      @(negedge clk);
+      btn_sustenido <= 1'b1;
+      repeat (5) @(posedge clk);
+
+      for (k = 0; k < 7; k = k + 1) begin
+        @(negedge clk);
+        gpio_keys <= (7'b0000001 << k);
+        receive_and_verify_midi_packet({8'h90, 1'b0, exp_sharp[k], 8'd127}, "SHARP_NOTE_ON");
+
+        @(negedge clk);
+        gpio_keys <= 7'b0000000;
+        receive_and_verify_midi_packet({8'h80, 1'b0, exp_sharp[k], 8'd0}, "SHARP_NOTE_OFF");
+        repeat (10) @(posedge clk);
+      end
+
+      @(negedge clk);
+      btn_sustenido <= 1'b0;
+      repeat (5) @(posedge clk);
+
+      // 3. Testa mudanca de oitava acima (Oitava 5)
+      press_btn_oitava_up();
+      @(negedge clk);
+      gpio_keys <= 7'b0000001; // Do5 = 72
+      receive_and_verify_midi_packet({8'h90, 8'd72, 8'd127}, "OCT5_DO_NOTE_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd72, 8'd0}, "OCT5_DO_NOTE_OFF");
+      repeat (10) @(posedge clk);
+
+      // 4. Testa mudanca de oitava abaixo duas vezes (Oitava 3)
+      press_btn_oitava_down(); // Volta para 4
+      press_btn_oitava_down(); // Vai para 3
+      @(negedge clk);
+      gpio_keys <= 7'b0000001; // Do3 = 48
+      receive_and_verify_midi_packet({8'h90, 8'd48, 8'd127}, "OCT3_DO_NOTE_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd48, 8'd0}, "OCT3_DO_NOTE_OFF");
+      repeat (10) @(posedge clk);
     end
   endtask
 
@@ -193,7 +307,7 @@ module piano_top_tb;
       tests_run = tests_run + 1;
       setup();
 
-      for (idx = 0; idx < 39; idx = idx + 1) begin
+      for (idx = 0; idx < 42; idx = idx + 1) begin
         press_btn_musica();
       end
 
@@ -262,10 +376,10 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd68, 8'd48}, "CLAIR_DE_LUNE_N0_ON");
-          receive_and_verify_midi_packet({8'h80, 8'd68, 8'd0},  "CLAIR_DE_LUNE_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd80, 8'd61}, "CLAIR_DE_LUNE_N1_ON");
-          receive_and_verify_midi_packet({8'h80, 8'd80, 8'd0},  "CLAIR_DE_LUNE_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd48}, "CLAIR_DE_LUNE_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},  "CLAIR_DE_LUNE_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd79, 8'd61}, "CLAIR_DE_LUNE_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd79, 8'd0},  "CLAIR_DE_LUNE_N1_OFF");
         end
         begin
           @(negedge clk);
@@ -356,6 +470,7 @@ module piano_top_tb;
     $display("INICIANDO SIMULACAO: piano_top_tb");
 
     test_modo_livre_midi();
+    test_todas_notas_e_sustenidos_midi();
     test_modo_aprendizado_acerto_erro();
     test_gravacao_e_demonstracao_ram();
     test_demonstracao_clair_de_lune_rom();

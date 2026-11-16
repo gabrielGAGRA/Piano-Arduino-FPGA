@@ -6,8 +6,8 @@
 `default_nettype none
 
 module piano_top #(
-  parameter DebounceTecla    = 100_000,
-  parameter DebounceControle = 200_000,
+  parameter DebounceTecla    = 500_000,
+  parameter DebounceControle = 400_000,
   parameter ClockDivUart     = 434,
   parameter CiclosTick8ms    = 400_000
 )(
@@ -20,9 +20,11 @@ module piano_top #(
   input  wire       btn_oitava_up_n,
   input  wire       btn_oitava_down_n,
   input  wire       btn_sustenido,
+  input  wire       hcsr04_echo,
   output wire       saida_serial,
   output wire       saida_serial_dashboard,
   output wire       servo_controle,
+  output wire       hcsr04_trigger,
   output wire [6:0] led_vermelho,
   output wire       led_sustenido,
   output wire       led_oitava_up,
@@ -126,6 +128,7 @@ module piano_top #(
     .btn_oitava_up    (btn_oitava_up),
     .btn_oitava_down  (btn_oitava_down),
     .btn_sustenido    (btn_sustenido),
+    .hcsr04_echo      (hcsr04_echo),
     .modo_ativo       (fsm_modo_ativo),
     .escreve_ram      (fsm_escreve_ram),
     .conta_endereco   (fsm_conta_end),
@@ -151,6 +154,7 @@ module piano_top #(
     .sustenido_atual  (s_sustenido_atual),
     .led_oitava_up    (led_oitava_up),
     .led_oitava_down  (led_oitava_down),
+    .hcsr04_trigger   (hcsr04_trigger),
     .out_volume       (fd_volume),
     .mostra_vol       (fd_mostra_vol),
     .t_passo_metronomo(fd_t_passo_metronomo)

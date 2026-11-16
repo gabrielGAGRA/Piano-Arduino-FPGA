@@ -21,6 +21,7 @@ module fluxo_dados #(
   input  wire        btn_oitava_up,
   input  wire        btn_oitava_down,
   input  wire        btn_sustenido,
+  input  wire        hcsr04_echo,
   input  wire [1:0]  modo_ativo,
   input  wire        escreve_ram,
   input  wire        conta_endereco,
@@ -46,6 +47,7 @@ module fluxo_dados #(
   output wire        sustenido_atual,
   output wire        led_oitava_up,
   output wire        led_oitava_down,
+  output wire        hcsr04_trigger,
   output wire [1:0]  out_volume,
   output wire        mostra_vol,
   output wire [31:0] t_passo_metronomo
@@ -164,6 +166,22 @@ module fluxo_dados #(
     .pulso(s_btn_oitava_down_pulse)
   );
 
+  wire s_combo_oitava = s_btn_oitava_up_db && s_btn_oitava_down_db;
+  reg  s_modo_oitava_sensor_reg;
+  reg  s_combo_oitava_armado_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      s_modo_oitava_sensor_reg <= 1'b0;
+      s_combo_oitava_armado_reg <= 1'b1;
+    end else if (!s_combo_oitava) begin
+      s_combo_oitava_armado_reg <= 1'b1;
+    end else if (s_combo_oitava_armado_reg) begin
+      s_modo_oitava_sensor_reg <= ~s_modo_oitava_sensor_reg;
+      s_combo_oitava_armado_reg <= 1'b0;
+    end
+  end
+
   // Logica de Combinacao (Modo + Intensidade)
   wire s_modo_pressed = s_btn_modo_db;
   reg  r_modo_prev_reg;
@@ -178,6 +196,8 @@ module fluxo_dados #(
 
   wire s_modo_released = (!s_modo_pressed && r_modo_prev_reg);
 
+  localparam [25:0] CiclosDisplayVol = 125 * CiclosTick8ms;
+
   reg        combo_ativo_reg;
   reg [1:0]  estado_vol_reg;
   reg [25:0] timer_display_vol_reg;
@@ -190,7 +210,7 @@ module fluxo_dados #(
     end else begin
       if (s_modo_pressed && s_btn_intensidade_pulse) begin
         combo_ativo_reg       <= 1'b1;
-        timer_display_vol_reg <= 26'd50_000_000;
+        timer_display_vol_reg <= CiclosDisplayVol;
 
         if (estado_vol_reg == 2'd2) begin
           estado_vol_reg <= 2'd0;
@@ -214,11 +234,11 @@ module fluxo_dados #(
   // Seletor de musica
   wire [5:0] s_sel_musica;
   contador_m #(
-    .Modulo(40),
+    .Modulo(43),
     .Width (6)
   ) contador_m_musica (
     .clk  (clk),
-    .arst(arst),
+    .arst (arst),
     .sclr (1'b0),
     .conta(s_btn_musica_pulse),
     .fim  (),
@@ -226,18 +246,61 @@ module fluxo_dados #(
     .q    (s_sel_musica)
   );
 
-  wire [5:0] mux_sel = (modo_ativo == 2'd2) ? 6'd39 : s_sel_musica;
+  wire [5:0] mux_sel = (modo_ativo == 2'd2) ? 6'd42 : s_sel_musica;
   assign out_sel_musica = mux_sel;
   assign db_botoes      = s_botoes_db;
 
   // Gerenciador de oitava livre
   wire [2:0] s_oitava_livre;
+  wire [11:0] s_distancia;
+  wire s_sensor_pronto;
+  wire [9:0] s_distancia_cm =
+    (s_distancia[11:8] * 10'd100) +
+    (s_distancia[7:4] * 10'd10) +
+    s_distancia[3:0];
+  reg [2:0] s_oitava_sensor_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      s_oitava_sensor_reg <= 3'd4;
+    end else if (s_sensor_pronto) begin
+      if (s_distancia_cm <= 10'd10) begin
+        s_oitava_sensor_reg <= 3'd7;
+      end else if (s_distancia_cm <= 10'd20) begin
+        s_oitava_sensor_reg <= 3'd6;
+      end else if (s_distancia_cm <= 10'd30) begin
+        s_oitava_sensor_reg <= 3'd5;
+      end else if (s_distancia_cm <= 10'd40) begin
+        s_oitava_sensor_reg <= 3'd4;
+      end else if (s_distancia_cm <= 10'd50) begin
+        s_oitava_sensor_reg <= 3'd3;
+      end else if (s_distancia_cm <= 10'd60) begin
+        s_oitava_sensor_reg <= 3'd2;
+      end else begin
+        s_oitava_sensor_reg <= 3'd1;
+      end
+    end
+  end
+
   guarda_oitava guarda_oitava_inst (
     .clk           (clk),
     .arst(arst),
-    .btn_up_pulse  (s_btn_oitava_up_pulse),
-    .btn_down_pulse(s_btn_oitava_down_pulse),
+    .btn_up_pulse  (s_btn_oitava_up_pulse && !s_modo_oitava_sensor_reg && !s_combo_oitava),
+    .btn_down_pulse(s_btn_oitava_down_pulse && !s_modo_oitava_sensor_reg && !s_combo_oitava),
     .oitava_atual  (s_oitava_livre)
+  );
+
+  interface_hcsr04 interface_hcsr04_oitava (
+    .clk      (clk),
+    .arst     (arst),
+    .medir    (s_modo_oitava_sensor_reg),
+    .echo     (hcsr04_echo),
+    .trigger  (hcsr04_trigger),
+    .medida   (s_distancia),
+    .pronto   (s_sensor_pronto),
+    .db_reset (),
+    .db_medir (),
+    .db_estado()
   );
 
   // 1. Logica de Prioridade de Teclas
@@ -392,7 +455,7 @@ module fluxo_dados #(
     .data_out(d_ram39)
   );
 
-  wire [29:0] s_dado_ram = (mux_sel == 6'd39) ? d_ram39 : d_rom_partituras;
+  wire [29:0] s_dado_ram = (mux_sel == 6'd42) ? d_ram39 : d_rom_partituras;
 
   // Controle de fim da gravacao na RAM
   reg       grav_tem_dados_reg;
@@ -412,7 +475,7 @@ module fluxo_dados #(
   end
 
   wire [29:0] s_dado_ram_final =
-    ((mux_sel == 6'd39) && (!grav_tem_dados_reg || (s_endereco_ram > ultimo_end_gravado_reg))) ?
+    ((mux_sel == 6'd42) && (!grav_tem_dados_reg || (s_endereco_ram > ultimo_end_gravado_reg))) ?
     30'd0 : s_dado_ram;
 
   wire [6:0] s_nota_midi_rom = s_dado_ram_final[6:0];
@@ -431,11 +494,39 @@ module fluxo_dados #(
     .nota_id  (s_nota_esperada)
   );
 
+  // No Modo 1 (Aprendizado), preservamos a oitava e sustenido da nota enquanto o usuario
+  // mantiver alguma tecla pressionada. Isso impede re-ataques falsos (pipocos) quando a ROM
+  // avanca o endereco e troca de oitava/sustenido antes de o usuario soltar completamente a tecla.
+  reg [2:0] r_oitava_apre_reg;
+  reg       r_sustenido_apre_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      r_oitava_apre_reg    <= 3'd4;
+      r_sustenido_apre_reg <= 1'b0;
+    end else if (modo_ativo == 2'd1) begin
+      if (!s_tem_nota) begin
+        r_oitava_apre_reg    <= (s_nota_esperada != 3'd0) ?
+          s_oitava_esperada : s_oitava_livre;
+        r_sustenido_apre_reg <= (s_nota_esperada != 3'd0) ?
+          s_sustenido_esperado : s_btn_sustenido_db;
+      end
+    end else begin
+      r_oitava_apre_reg    <= s_oitava_livre;
+      r_sustenido_apre_reg <= s_btn_sustenido_db;
+    end
+  end
+
   wire s_ativo_apre_demo = (modo_ativo == 2'd1) || (modo_ativo == 2'd3);
-  wire [2:0] s_oitava_atual_uso = (s_ativo_apre_demo && (s_nota_esperada != 3'd0)) ?
-    s_oitava_esperada : s_oitava_livre;
-  wire s_sustenido_atual_uso = (s_ativo_apre_demo && (s_nota_esperada != 3'd0)) ?
-    s_sustenido_esperado : s_btn_sustenido_db;
+  wire [2:0] s_oitava_selecionada = s_modo_oitava_sensor_reg ?
+    s_oitava_sensor_reg : s_oitava_livre;
+  wire [2:0] s_oitava_atual_uso = (modo_ativo == 2'd3) ?
+    ((s_nota_esperada != 3'd0) ? s_oitava_esperada : s_oitava_selecionada) :
+    ((modo_ativo == 2'd1) ? r_oitava_apre_reg : s_oitava_selecionada);
+
+  wire s_sustenido_atual_uso = (modo_ativo == 2'd3) ?
+    ((s_nota_esperada != 3'd0) ? s_sustenido_esperado : s_btn_sustenido_db) :
+    ((modo_ativo == 2'd1) ? r_sustenido_apre_reg : s_btn_sustenido_db);
 
   wire s_led_up;
   wire s_led_down;
@@ -460,8 +551,9 @@ module fluxo_dados #(
 
   wire s_is_demo = (modo_ativo == 2'd3);
   reg  r_nota_ativa_bpm_reg;
+  wire s_tem_nota_usuario = s_tem_nota && (s_nota_tocada != 3'd0) && (s_nota_midi_usuario != 7'd0);
   wire s_tem_nota_final = s_is_demo ?
-    ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota;
+    ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota_usuario;
 
   wire [6:0] s_vel_base = s_is_demo ?
     ((s_velocity_rom == 7'd0) ? 7'd100 : s_velocity_rom) : 7'd127;
@@ -477,7 +569,7 @@ module fluxo_dados #(
 
   wire [6:0] s_nota_midi_desejada = s_is_demo ?
     (r_nota_ativa_bpm_reg ? s_nota_midi_rom : 7'd0) :
-    (s_tem_nota ? s_nota_midi_usuario : 7'd0);
+    (s_tem_nota_usuario ? s_nota_midi_usuario : 7'd0);
 
   gerenciador_midi_tx #(
     .ClockDiv(ClockDivUart)
@@ -561,27 +653,30 @@ module fluxo_dados #(
       6'd15:   t_passo_metronomo_reg = 32'd3631961; // 118 bpm (Homem_Aranha_1900)
       6'd16:   t_passo_metronomo_reg = 32'd4160887; // 103 bpm (Imperial_March)
       6'd17:   t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Interestelar)
-      6'd18:   t_passo_metronomo_reg = 32'd4373177; // 98 bpm  (Korobeiniki)
-      6'd19:   t_passo_metronomo_reg = 32'd3039513; // 141 bpm (Lugar_Ao_Sol)
-      6'd20:   t_passo_metronomo_reg = 32'd1635768; // 524 bpm (Magnetic)
-      6'd21:   t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Mario)
-      6'd22:   t_passo_metronomo_reg = 32'd5791505; // 74 bpm  (Minecraft_Sweden)
-      6'd23:   t_passo_metronomo_reg = 32'd1948051; // 220 bpm (Moonlight_Sonata_3mvt)
-      6'd24:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Morning_Flower)
-      6'd25:   t_passo_metronomo_reg = 32'd3792667; // 113 bpm (Never_Gonna_Give_You_Up)
-      6'd26:   t_passo_metronomo_reg = 32'd3896103; // 110 bpm (Numb)
-      6'd27:   t_passo_metronomo_reg = 32'd3694581; // 116 bpm (Pink_Panther)
-      6'd28:   t_passo_metronomo_reg = 32'd3726708; // 115 bpm (Radio_Ga_Ga)
-      6'd29:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Sadness_And_Sorrow)
-      6'd30:   t_passo_metronomo_reg = 32'd3174603; // 135 bpm (Someone_Like_You)
-      6'd31:   t_passo_metronomo_reg = 32'd5163511; // 83 bpm  (Star_Wars_Main_Theme)
-      6'd32:   t_passo_metronomo_reg = 32'd3428571; // 125 bpm (Sweet_Child_O_Mine)
-      6'd33:   t_passo_metronomo_reg = 32'd5102040; // 84 bpm  (Take_On_Me)
-      6'd34:   t_passo_metronomo_reg = 32'd4658385; // 92 bpm  (Trem_Das_Onze)
-      6'd35:   t_passo_metronomo_reg = 32'd3571428; // 120 bpm (Undertale_Megalovania)
-      6'd36:   t_passo_metronomo_reg = 32'd2645502; // 162 bpm (We_Are_Number_One)
-      6'd37:   t_passo_metronomo_reg = 32'd3296703; // 130 bpm (When_Love_Takes_Over)
-      6'd38:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Zelda_Lost_Woods)
+      6'd18:   t_passo_metronomo_reg = 32'd2111189; // 203 bpm (Jump_Up_Super_Star)
+      6'd19:   t_passo_metronomo_reg = 32'd4373177; // 98 bpm  (Korobeiniki)
+      6'd20:   t_passo_metronomo_reg = 32'd3039513; // 141 bpm (Lugar_Ao_Sol)
+      6'd21:   t_passo_metronomo_reg = 32'd1635768; // 524 bpm (Magnetic)
+      6'd22:   t_passo_metronomo_reg = 32'd4285714; // 100 bpm (Mario)
+      6'd23:   t_passo_metronomo_reg = 32'd5791505; // 74 bpm  (Minecraft_Sweden)
+      6'd24:   t_passo_metronomo_reg = 32'd1948051; // 220 bpm (Moonlight_Sonata_3mvt)
+      6'd25:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Morning_Flower)
+      6'd26:   t_passo_metronomo_reg = 32'd3792667; // 113 bpm (Never_Gonna_Give_You_Up)
+      6'd27:   t_passo_metronomo_reg = 32'd3631961; // 118 bpm (New_Donk_City)
+      6'd28:   t_passo_metronomo_reg = 32'd3896103; // 110 bpm (Numb)
+      6'd29:   t_passo_metronomo_reg = 32'd3694581; // 116 bpm (Pink_Panther)
+      6'd30:   t_passo_metronomo_reg = 32'd3726708; // 115 bpm (Radio_Ga_Ga)
+      6'd31:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Sadness_And_Sorrow)
+      6'd32:   t_passo_metronomo_reg = 32'd3174603; // 135 bpm (Super_Idol)
+      6'd33:   t_passo_metronomo_reg = 32'd5163511; // 83 bpm  (Susanne)
+      6'd34:   t_passo_metronomo_reg = 32'd3428571; // 125 bpm (Sweet_Child_O_Mine)
+      6'd35:   t_passo_metronomo_reg = 32'd5102040; // 84 bpm  (Take_On_Me)
+      6'd36:   t_passo_metronomo_reg = 32'd4658385; // 92 bpm  (Trem_Das_Onze)
+      6'd37:   t_passo_metronomo_reg = 32'd3571428; // 120 bpm (Undertale_Megalovania)
+      6'd38:   t_passo_metronomo_reg = 32'd2645502; // 162 bpm (We_Are_Number_One)
+      6'd39:   t_passo_metronomo_reg = 32'd3296703; // 130 bpm (When_Love_Takes_Over)
+      6'd40:   t_passo_metronomo_reg = 32'd3571428; // 120 bpm (Wii_Sports)
+      6'd41:   t_passo_metronomo_reg = 32'd3061224; // 140 bpm (Zelda_Lost_Woods)
       default: t_passo_metronomo_reg = 32'd4285714;
     endcase
   end

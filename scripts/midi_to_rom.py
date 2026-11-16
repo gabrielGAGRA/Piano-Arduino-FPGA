@@ -2,7 +2,7 @@
 Pré-processador de arquivos MIDI (.mid) para memórias ROM de 30 bits x 1024 palavras
 do Piano FPGA (Modo Aprendizado e Modo Demonstração).
 
-Formato de cada palavra de 30 bits (em binário ASCII, 1024 linhas por arquivo):
+Formato de cada palavra de 30 bits (em binário ASCII ou hex, 1024 linhas por arquivo):
   - bits [29:22] (8 bits): PAUSA após a nota em ticks de 8 ms (0..255)
   - bits [21:14] (8 bits): DURACAO da nota (incluindo extensão de pedal sustain) em ticks de 8 ms (1..255)
   - bits [13:7]  (7 bits): VELOCITY MIDI (1..127)
@@ -17,11 +17,9 @@ from typing import Dict, List, Optional, Tuple
 
 TICK_SECONDS = 0.008
 ROM_DEPTH = 1024
-MAX_NOTES = ROM_DEPTH - 1  # Reserva pelo menos o último endereço (1023) com 30'd0 (fim_musica)
+MAX_NOTES = ROM_DEPTH - 1  # Reserva pelo menos o último endereço com 30'd0 (fim_musica)
 CHORD_WINDOW_S = 0.024     # Janela de 24 ms para agrupar acordes simultâneos
-
-ROM_FILES = [
-]
+MIN_PLAYABLE_IOI_S = 0.095 # Limite mínimo para evitar notas que se atropelam no ritmo pop
 
 
 def _read_varlen(data: bytes, idx: int) -> Tuple[int, int]:
@@ -36,10 +34,16 @@ def _read_varlen(data: bytes, idx: int) -> Tuple[int, int]:
     return val, idx
 
 
-def parse_smf_events(midi_path: str) -> List[Dict]:
+def parse_smf_events(
+    midi_path: str,
+    allowed_channels: Optional[List[int]] = None,
+    exclude_channels: Optional[List[int]] = None,
+    ignore_drums: bool = True,
+) -> List[Dict]:
     """
     Faz o parse binário nativo de um arquivo Standard MIDI File (.mid) e retorna
     uma lista ordenada cronologicamente de eventos com tempo absoluto em segundos (`time_s`).
+    Ignora canais de percussão (ch=9) por padrão e filtra canais se especificado.
     """
     with open(midi_path, "rb") as f:
         data = f.read()
@@ -100,6 +104,18 @@ def parse_smf_events(midi_path: str) -> List[Dict]:
             else:
                 high = status & 0xF0
                 ch = status & 0x0F
+
+                # Filtro de canais: ignora percussão e restringe a canais permitidos
+                if ignore_drums and ch == 9:
+                    idx += 1 if high in (0xC0, 0xD0) else 2
+                    continue
+                if exclude_channels is not None and ch in exclude_channels:
+                    idx += 1 if high in (0xC0, 0xD0) else 2
+                    continue
+                if allowed_channels is not None and ch not in allowed_channels:
+                    idx += 1 if high in (0xC0, 0xD0) else 2
+                    continue
+
                 if high in (0xC0, 0xD0):
                     idx += 1
                 else:
@@ -157,8 +173,7 @@ def clamp_midi_note(note: int) -> int:
 def extract_sustained_notes(timed_events: List[Dict]) -> List[Dict]:
     """
     Associa cada Note On ao seu Note Off e aplica a lógica física do pedal de sustain
-    (Control Change 64 >= 64): se uma tecla é solta com o pedal pressionado, a nota
-    continua soando até o instante em que o pedal é solto.
+    (Control Change 64 >= 64).
     """
     pedal_down = False
     active_keys: Dict[Tuple[int, int], List[Dict]] = {}
@@ -172,7 +187,6 @@ def extract_sustained_notes(timed_events: List[Dict]) -> List[Dict]:
         if etype == "cc64":
             new_pedal = ev["value"] >= 64
             if pedal_down and not new_pedal:
-                # Pedal foi solto: encerra todas as notas retidas pelo sustain
                 for nobj in sustained_notes:
                     nobj["t_end_effective"] = max(nobj["t_key_off"], t)
                     completed_notes.append(nobj)
@@ -181,7 +195,6 @@ def extract_sustained_notes(timed_events: List[Dict]) -> List[Dict]:
 
         elif etype == "note_on":
             key = (ev["ch"], ev["note"])
-            # Se a mesma tecla já estava retida no pedal, encerra a anterior no novo ataque
             still_sustained = []
             for nobj in sustained_notes:
                 if (nobj["ch"], nobj["note"]) == key:
@@ -258,6 +271,212 @@ def select_monophonic_melody(notes: List[Dict], max_notes: int = MAX_NOTES) -> L
     return melody[:max_notes]
 
 
+def filter_pop_melody(
+    notes: List[Dict],
+    min_ioi_s: float = MIN_PLAYABLE_IOI_S,
+    max_notes: int = MAX_NOTES,
+) -> List[Dict]:
+    """
+    Filtra notas de acompanhamento/baixo e notas sobrepostas para extrair
+    apenas a melodia principal tocável em estilo pop:
+    1. Agrupa acordes simultâneos (24 ms) e escolhe a nota mais aguda.
+    2. Descarta notas de contratempo que iniciam sob sustentação de nota melódica mais aguda (held-note masking).
+    3. Descarta notas no registro grave de baixo (< 50 quando o registro melódico é superior).
+    4. Anti-atropelo rítmico: quando notas se atropelam (< min_ioi_s), mantém a nota estrutural mais longa/forte.
+    """
+    if not notes:
+        return []
+
+    # 1. Agrupamento em acordes simultâneos e extração de skyline
+    clusters: List[List[Dict]] = []
+    for n in notes:
+        if clusters and (n["t_start"] - clusters[-1][0]["t_start"]) < CHORD_WINDOW_S:
+            clusters[-1].append(n)
+        else:
+            clusters.append([n])
+
+    skyline = [max(c, key=lambda x: (x["note"], x["vel"])) for c in clusters]
+
+    # Mediana do skyline superior para detectar registro melódico vs baixo
+    pitches = sorted([n["note"] for n in skyline])
+    median_pitch = pitches[len(pitches) // 2] if pitches else 60
+
+    # 2 e 3. Held-note masking + Filtro de linha de baixo
+    filtered: List[Dict] = []
+    active_high: Optional[Dict] = None
+
+    for n in skyline:
+        # Mascaramento por nota sustentada
+        if active_high is not None and n["t_start"] < (active_high["t_end_effective"] - 0.025):
+            if n["note"] < active_high["note"]:
+                continue
+
+        # Filtro de baixo em pausas da melodia
+        if median_pitch >= 58:
+            if n["note"] < 50 or (median_pitch - n["note"]) > 16:
+                continue
+
+        filtered.append(dict(n))
+        active_high = n
+
+    # 4. Anti-atropelo rítmico (Playable IOI)
+    cleaned: List[Dict] = []
+    for n in filtered:
+        if not cleaned:
+            cleaned.append(n)
+            continue
+
+        prev = cleaned[-1]
+        dt = n["t_start"] - prev["t_start"]
+
+        if dt < min_ioi_s:
+            # Notas muito próximas: escolhe a nota mais longa ou de maior velocity
+            prev_dur = prev["t_end_effective"] - prev["t_start"]
+            cur_dur = n["t_end_effective"] - n["t_start"]
+            if (cur_dur * n["vel"]) > (prev_dur * prev["vel"]):
+                cleaned[-1] = n
+        else:
+            cleaned.append(n)
+
+        if len(cleaned) >= max_notes:
+            break
+
+    return cleaned[:max_notes]
+
+
+def stabilize_pop_octaves(melody: List[Dict]) -> List[Dict]:
+    """
+    Estabiliza as oitavas da melodia por seção (Viterbi com histerese):
+    1. Transposição ótima (-6..+6 semitons) minimizando trocas de oitava (C..B) e favorecendo notas naturais.
+    2. Programação dinâmica mantendo a nota musical exata (pitch % 12) e penalizando trocas rápidas
+       de oitava em sequências curtas (< 6 notas), evitando saltos constantes de oitava.
+    """
+    if not melody:
+        return melody
+
+    # 1. Transposição ótima consciente de oitava
+    best_shift = 0
+    best_score = -1e9
+
+    for shift in range(-6, 7):
+        shifted_pitches = [n["note"] + shift for n in melody]
+        nats = sum(1 for p in shifted_pitches if (p % 12) in (0, 2, 4, 5, 7, 9, 11))
+        oct_crossings = sum(
+            1 for i in range(len(shifted_pitches) - 1)
+            if (shifted_pitches[i] // 12) != (shifted_pitches[i + 1] // 12)
+        )
+        # Score ponderado: prioriza reduzir trocas de oitava mantendo boa tocabilidade
+        score = (nats * 1.0) - (oct_crossings * 2.5)
+        if score > best_score:
+            best_score = score
+            best_shift = shift
+
+    # Transpõe por oitavas inteiras para centrar na Oitava 4 (60..71)
+    shifted_notes = [n["note"] + best_shift for n in melody]
+    mean_pitch = sum(shifted_notes) / len(shifted_notes)
+    octave_shift = 0
+    while (mean_pitch + octave_shift) < 60:
+        octave_shift += 12
+    while (mean_pitch + octave_shift) > 71:
+        octave_shift -= 12
+    total_shift = best_shift + octave_shift
+
+    pre_transposed = []
+    for n in melody:
+        nc = dict(n)
+        nc["note"] = clamp_midi_note(n["note"] + total_shift)
+        pre_transposed.append(nc)
+
+    # 2. Viterbi com Histerese de Oitava
+    K = 6  # Mínimo de notas na mesma oitava antes de tolerar mudança confortável
+    octaves = [3, 4, 5, 6, 7]
+    INF = 1e18
+
+    dp = {(o, r): INF for o in octaves for r in range(1, K + 1)}
+    parent: Dict[Tuple[int, int, int], Tuple[int, int]] = {}
+
+    p0 = pre_transposed[0]["note"]
+    pc0 = p0 % 12
+    for o in octaves:
+        cand_p = o * 12 + pc0
+        dp[(o, 1)] = (abs(cand_p - p0) / 12.0) * 1.5
+
+    for i in range(1, len(pre_transposed)):
+        p = pre_transposed[i]["note"]
+        pc = p % 12
+        new_dp = {(o, r): INF for o in octaves for r in range(1, K + 1)}
+
+        for o_prev in octaves:
+            for r_prev in range(1, K + 1):
+                cost_prev = dp[(o_prev, r_prev)]
+                if cost_prev >= INF:
+                    continue
+                for o_cur in octaves:
+                    p_cur = o_cur * 12 + pc
+                    c_emit = (abs(p_cur - p) / 12.0) * 1.2 + (abs(o_cur - 5) * 0.15)
+                    if o_cur == o_prev:
+                        r_cur = min(K, r_prev + 1)
+                        c_trans = 0.0
+                    else:
+                        r_cur = 1
+                        short_run_penalty = 8.0 if r_prev < K else 0.0
+                        c_trans = 3.5 + short_run_penalty + abs(o_cur - o_prev) * 1.0
+
+                    total = cost_prev + c_emit + c_trans
+                    if total < new_dp[(o_cur, r_cur)]:
+                        new_dp[(o_cur, r_cur)] = total
+                        parent[(i, o_cur, r_cur)] = (o_prev, r_prev)
+        dp = new_dp
+
+    best_state = min(dp, key=lambda k: dp[k])
+    path_oct = [0] * len(pre_transposed)
+    cur_o, cur_r = best_state
+    for i in range(len(pre_transposed) - 1, -1, -1):
+        path_oct[i] = cur_o
+        if i > 0:
+            cur_o, cur_r = parent[(i, cur_o, cur_r)]
+
+    stabilized_melody: List[Dict] = []
+    for i, n in enumerate(pre_transposed):
+        nc = dict(n)
+        nc["note"] = clamp_midi_note(path_oct[i] * 12 + (n["note"] % 12))
+        stabilized_melody.append(nc)
+
+    return stabilized_melody
+
+
+def optimize_transposition_for_7_keys(melody: List[Dict]) -> List[Dict]:
+    """Transposição clássica direta mantendo contorno sem alterações."""
+    if not melody:
+        return melody
+
+    pitches = [n["note"] for n in melody]
+    best_shift = 0
+    best_nat_count = -1
+    for shift in range(-6, 7):
+        nats = sum(1 for p in pitches if ((p + shift) % 12) in (0, 2, 4, 5, 7, 9, 11))
+        if nats > best_nat_count:
+            best_nat_count = nats
+            best_shift = shift
+
+    shifted = [p + best_shift for p in pitches]
+    mean_pitch = sum(shifted) / len(shifted)
+    octave_shift = 0
+    while (mean_pitch + octave_shift) < 60:
+        octave_shift += 12
+    while (mean_pitch + octave_shift) > 71:
+        octave_shift -= 12
+
+    total_shift = best_shift + octave_shift
+    optimized_melody = []
+    for n in melody:
+        n_copy = dict(n)
+        n_copy["note"] = clamp_midi_note(n["note"] + total_shift)
+        optimized_melody.append(n_copy)
+
+    return optimized_melody
+
+
 def encode_rom_word(pausa_ticks: int, dur_ticks: int, velocity: int, note_midi: int) -> str:
     """Formata uma palavra de 30 bits `{pausa[7:0], duracao[7:0], velocity[6:0], nota[6:0]}` em binário."""
     pausa_clamped = max(0, min(255, int(pausa_ticks)))
@@ -296,35 +515,94 @@ SONG_CATALOG = [
     "Homem_Aranha_1900",       # 15
     "Imperial_March",          # 16
     "Interestelar",            # 17
-    "Korobeiniki",             # 18
-    "Lugar_Ao_Sol",            # 19
-    "Magnetic",                # 20
-    "Mario",                   # 21
-    "Minecraft_Sweden",        # 22
-    "Moonlight_Sonata_3mvt",   # 23
-    "Morning_Flower",          # 24
-    "Never_Gonna_Give_You_Up", # 25
-    "Numb",                    # 26
-    "Pink_Panther",            # 27
-    "Radio_Ga_Ga",             # 28
-    "Sadness_And_Sorrow",      # 29
-    "Super_Idol",              # 30
-    "Susanne",                 # 31
-    "Sweet_Child_O_Mine",      # 32
-    "Take_On_Me",              # 33
-    "Trem_Das_Onze",           # 34
-    "Undertale_Megalovania",   # 35
-    "We_Are_Number_One",       # 36
-    "When_Love_Takes_Over",    # 37
-    "Zelda_Lost_Woods",        # 38
+    "Jump_Up_Super_Star",      # 18
+    "Korobeiniki",             # 19
+    "Lugar_Ao_Sol",            # 20
+    "Magnetic",                # 21
+    "Mario",                   # 22
+    "Minecraft_Sweden",        # 23
+    "Moonlight_Sonata_3mvt",   # 24
+    "Morning_Flower",          # 25
+    "Never_Gonna_Give_You_Up", # 26
+    "New_Donk_City",           # 27
+    "Numb",                    # 28
+    "Pink_Panther",            # 29
+    "Radio_Ga_Ga",             # 30
+    "Sadness_And_Sorrow",      # 31
+    "Super_Idol",              # 32
+    "Susanne",                 # 33
+    "Sweet_Child_O_Mine",      # 34
+    "Take_On_Me",              # 35
+    "Trem_Das_Onze",           # 36
+    "Undertale_Megalovania",   # 37
+    "We_Are_Number_One",       # 38
+    "When_Love_Takes_Over",    # 39
+    "Wii_Sports",              # 40
+    "Zelda_Lost_Woods",        # 41
 ]
 
+# Configuração com parâmetro classical obrigatório para cada música
+SONG_CONFIG: Dict[str, Dict] = {
+    "Clair_de_Lune": {
+        "files": ["Clair_de_Lune.mid", "debussy-clair-de-lune.mid"],
+        "channels": [0],
+        "classical": True,
+    },
+    "Jump_Up_Super_Star": {
+        "files": [
+            "Super Mario Odyssey - Jump Up Super Star.mid.mid",
+            "Super Mario Odyssey - Jump Up Super Star.mid",
+            "Jump_Up_Super_Star.mid",
+        ],
+        "classical": False,
+    },
+    "New_Donk_City": {
+        "files": [
+            "[COMPLETE] New Donk City (Super Mario Odyssey).mid",
+            "New Donk City.mid",
+            "New_Donk_City.mid",
+        ],
+        "channels": [2],
+        "classical": False,
+    },
+    "Wii_Sports": {
+        "files": [
+            "Wii Sports Title Screen.mid",
+            "Wii_Sports.mid",
+        ],
+        "exclude_channels": [0, 7, 9, 11, 12],
+        "classical": False,
+    },
+}
 
-def extract_melody_words(midi_path: str, as_hex: bool = True) -> List[str]:
-    """Extrai as palavras codificadas da melodia sem padding de 1024 zeros."""
-    timed_events = parse_smf_events(midi_path)
+
+def extract_melody_words(
+    midi_path: str,
+    classical: bool,
+    as_hex: bool = True,
+    allowed_channels: Optional[List[int]] = None,
+    exclude_channels: Optional[List[int]] = None,
+) -> List[str]:
+    """Extrai as palavras codificadas da melodia respeitando o modo classical (pop vs clássico)."""
+    if classical is None:
+        raise ValueError("O parâmetro 'classical' é obrigatório (True ou False).")
+
+    timed_events = parse_smf_events(
+        midi_path,
+        allowed_channels=allowed_channels,
+        exclude_channels=exclude_channels,
+        ignore_drums=True,
+    )
     sustained_notes = extract_sustained_notes(timed_events)
-    melody = select_monophonic_melody(sustained_notes, max_notes=MAX_NOTES)
+
+    if classical:
+        # Modo clássico: não remove notas, preserva skyline puro e afinação
+        melody = select_monophonic_melody(sustained_notes, max_notes=MAX_NOTES)
+        melody = optimize_transposition_for_7_keys(melody)
+    else:
+        # Modo pop: extração da voz principal, remoção de acompanhamento/baixo, anti-atropelo e estabilização de oitavas
+        melody = filter_pop_melody(sustained_notes, min_ioi_s=MIN_PLAYABLE_IOI_S, max_notes=MAX_NOTES)
+        melody = stabilize_pop_octaves(melody)
 
     words: List[str] = []
     for i, n in enumerate(melody):
@@ -367,25 +645,43 @@ def build_mega_rom(
 ) -> Tuple[str, str]:
     """
     Constrói a Mega-ROM contígua `music/partituras.hex` e gera o módulo
-    Verilog `tabela_offsets_partituras.v` compatível com o estilo Verilog-2001 do projeto.
+    Verilog `tabela_offsets_partituras.v`.
     """
     sentinel_hex = "00000000"
     rom_words: List[str] = [sentinel_hex]  # Endereço 0 é sentinela para slots vazios
     offsets: Dict[int, int] = {}
 
+    sub_mid_dir = os.path.join(music_dir, ".mid")
+
     for idx, song_name in enumerate(SONG_CATALOG):
         song_words: List[str] = []
-        midi_candidates = [
-            os.path.join(music_dir, f"{song_name}.mid"),
-            os.path.join(music_dir, f"{song_name.lower()}.mid"),
-        ]
-        if song_name == "Clair_de_Lune":
-            midi_candidates.insert(0, os.path.join(music_dir, "debussy-clair-de-lune.mid"))
+        cfg = SONG_CONFIG.get(song_name, {})
+        allowed_channels = cfg.get("channels", None)
+        exclude_channels = cfg.get("exclude_channels", None)
+        classical = cfg.get("classical", None)
+
+        file_names = cfg.get("files", [f"{song_name}.mid", f"{song_name.lower()}.mid"])
+        midi_candidates = []
+        for fn in file_names:
+            midi_candidates.append(os.path.join(music_dir, fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, "original", fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, "1-canal", fn))
 
         found_midi = next((c for c in midi_candidates if os.path.exists(c)), None)
 
         if found_midi:
-            song_words = extract_melody_words(found_midi, as_hex=True)
+            if classical is None:
+                raise ValueError(
+                    f"Música '{song_name}' encontrada em {found_midi}, mas o parâmetro 'classical' não foi definido!"
+                )
+            song_words = extract_melody_words(
+                found_midi,
+                classical=classical,
+                as_hex=True,
+                allowed_channels=allowed_channels,
+                exclude_channels=exclude_channels,
+            )
         elif song_name == "Do_Re_Mi_Fa":
             song_words = generate_scale_words(as_hex=True)
 
@@ -393,21 +689,19 @@ def build_mega_rom(
             start_addr = len(rom_words)
             offsets[idx] = start_addr
             rom_words.extend(song_words)
-            rom_words.append(sentinel_hex)  # Sentinela de fim de música
+            rom_words.append(sentinel_hex)
         else:
-            offsets[idx] = 0  # Aponta para endereço 0 (sentinela)
+            offsets[idx] = 0
 
-    # Escreve partituras.hex
     hex_path = os.path.join(music_dir, "partituras.hex")
     with open(hex_path, "w", encoding="ascii", newline="\n") as f:
         for w in rom_words:
             f.write(f"{w}\n")
 
-    # Gera tabela_offsets_partituras.v
     verilog_path = os.path.join(verilog_out_dir, "tabela_offsets_partituras.v")
     lines_v = [
         "// Descricao: Tabela combinacional de offsets de partituras para a Mega-ROM.",
-        "// Funcionamento: Mapeia o indice da musica (0..38) no endereco base dentro da Mega-ROM.",
+        f"// Funcionamento: Mapeia o indice da musica (0..{len(SONG_CATALOG)-1}) no endereco base dentro da Mega-ROM.",
         "",
         "`timescale 1ns / 1ps",
         "`default_nettype none",
@@ -445,45 +739,30 @@ def build_mega_rom(
     return hex_path, verilog_path
 
 
-def convert_midi_to_rom_lines(midi_path: str) -> List[str]:
-    """Converte um arquivo `.mid` nas 1024 linhas binárias de 30 bits para `$readmemb`."""
-    timed_events = parse_smf_events(midi_path)
-    sustained_notes = extract_sustained_notes(timed_events)
-    melody = select_monophonic_melody(sustained_notes, max_notes=MAX_NOTES)
-
-    lines: List[str] = []
-    for i, n in enumerate(melody):
-        t_start = n["t_start"]
-        raw_sustain_dur = max(TICK_SECONDS, n["t_end_effective"] - t_start)
-
-        if i + 1 < len(melody):
-            delta_t = max(TICK_SECONDS, melody[i + 1]["t_start"] - t_start)
-            dur_s = min(raw_sustain_dur, delta_t)
-            pausa_s = max(0.0, delta_t - dur_s)
-        else:
-            dur_s = raw_sustain_dur
-            pausa_s = 0.0
-
-        dur_ticks = max(1, min(255, int(round(dur_s / TICK_SECONDS))))
-        pausa_ticks = max(0, min(255, int(round(pausa_s / TICK_SECONDS))))
-        vel = max(1, min(127, n["vel"]))
-        note_midi = clamp_midi_note(n["note"])
-
-        lines.append(encode_rom_word(pausa_ticks, dur_ticks, vel, note_midi))
-
-    while len(lines) < ROM_DEPTH:
-        lines.append("0" * 30)
-
-    return lines[:ROM_DEPTH]
+def convert_midi_to_rom_lines(
+    midi_path: str,
+    classical: bool,
+    allowed_channels: Optional[List[int]] = None,
+    exclude_channels: Optional[List[int]] = None,
+    as_hex: bool = False,
+) -> List[str]:
+    """Converte um arquivo `.mid` nas linhas (binário ou hex) de 30 bits com sentinela."""
+    words = extract_melody_words(
+        midi_path,
+        classical=classical,
+        as_hex=as_hex,
+        allowed_channels=allowed_channels,
+        exclude_channels=exclude_channels,
+    )
+    sentinel = "00000000" if as_hex else ("0" * 30)
+    return words + [sentinel]
 
 
-def generate_scale_rom_lines() -> List[str]:
-    """Gera uma escala Dó Maior (C4..B4) de 30 bits para `Do_Re_Mi_Fa.txt`."""
-    scale_notes = [60, 62, 64, 65, 67, 69, 71]
-    lines = [encode_rom_word(pausa_ticks=5, dur_ticks=40, velocity=100, note_midi=n) for n in scale_notes]
-    while len(lines) < ROM_DEPTH:
-        lines.append("0" * 30)
-    return lines
+def generate_scale_rom_lines(as_hex: bool = False) -> List[str]:
+    """Gera uma escala Dó Maior (C4..B4) de 30 bits para `Do_Re_Mi_Fa.txt` com sentinela."""
+    scale_words = generate_scale_words(as_hex=as_hex)
+    sentinel = "00000000" if as_hex else ("0" * 30)
+    return scale_words + [sentinel]
 
 
 def write_rom_file(path: str, lines: List[str]) -> None:
@@ -493,12 +772,84 @@ def write_rom_file(path: str, lines: List[str]) -> None:
             f.write(line + "\n")
 
 
+def words_to_midi(words: List[str], out_mid_path: str) -> None:
+    """Exporta uma lista de palavras de 30 bits de volta para um arquivo Standard MIDI File (.mid) tocável."""
+    events = bytearray()
+    events += b'\x00\xFF\x51\x03\x0F\x42\x40'
+
+    def write_vlq(delta: int) -> None:
+        buf = bytearray()
+        buf.append(delta & 0x7F)
+        delta >>= 7
+        while delta > 0:
+            buf.append((delta & 0x7F) | 0x80)
+            delta >>= 7
+        events.extend(reversed(buf))
+
+    pending_delta = 0
+    for w in words:
+        val = int(w, 16) if len(w) == 8 else int(w, 2)
+        note = val & 0x7F
+        if note == 0:
+            break
+        vel = (val >> 7) & 0x7F
+        dur = (val >> 14) & 0xFF
+        pausa = (val >> 22) & 0xFF
+
+        write_vlq(pending_delta)
+        events.extend(bytes([0x90, note, vel]))
+
+        write_vlq(dur)
+        events.extend(bytes([0x80, note, 0]))
+
+        pending_delta = pausa
+
+    write_vlq(pending_delta)
+    events += b'\xFF\x2F\x00'
+
+    header = struct.pack('>4sIHHH', b'MThd', 6, 0, 1, 125)
+    track = struct.pack('>4sI', b'MTrk', len(events)) + events
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_mid_path)), exist_ok=True)
+    with open(out_mid_path, 'wb') as f:
+        f.write(header + track)
+
+
+def rom_file_to_midi(txt_path: str, out_mid_path: Optional[str] = None) -> str:
+    """Lê um arquivo .txt de ROM (binário de 30 bits ou hex) e converte de volta para um arquivo .mid tocável."""
+    if out_mid_path is None:
+        base, _ = os.path.splitext(txt_path)
+        out_mid_path = f"{base}_reconvertido.mid"
+
+    with open(txt_path, "r", encoding="ascii") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    words_to_midi(lines, out_mid_path)
+    return out_mid_path
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA.")
+    parser = argparse.ArgumentParser(description="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA e vice-versa.")
     parser.add_argument(
         "--midi",
-        default="music/debussy-clair-de-lune.mid",
-        help="Caminho do arquivo MIDI de entrada (padrão: music/debussy-clair-de-lune.mid)",
+        default=None,
+        help="Caminho de arquivo MIDI de entrada específico (opcional)",
+    )
+    parser.add_argument(
+        "--classical",
+        type=lambda v: str(v).lower() in ("true", "1", "yes"),
+        default=None,
+        help="Obrigatório se --midi for usado: especifica se o arquivo é clássico (True) ou pop/tocável (False)",
+    )
+    parser.add_argument(
+        "--from-txt",
+        default=None,
+        help="Caminho de arquivo .txt da ROM para converter de volta em arquivo .mid",
+    )
+    parser.add_argument(
+        "--out-mid",
+        default=None,
+        help="Caminho do arquivo .mid de saída ao usar --from-txt (opcional)",
     )
     parser.add_argument(
         "--out-dir",
@@ -507,26 +858,72 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # 1. Gera compatibilidade legada individual (.txt)
-    clair_lines = convert_midi_to_rom_lines(args.midi)
-    clair_path = os.path.join(args.out_dir, "Clair_de_Lune.txt")
-    write_rom_file(clair_path, clair_lines)
+    if args.from_txt is not None:
+        mid_file = rom_file_to_midi(args.from_txt, args.out_mid)
+        print(f"[OK] Convertido ROM '{args.from_txt}' de volta para MIDI: '{mid_file}'")
+        return
 
-    scale_lines = generate_scale_rom_lines()
-    for fname in ROM_FILES:
-        fpath = os.path.join(args.out_dir, fname)
-        if fname == "Clair_de_Lune.txt":
-            continue
-        elif fname == "Do_Re_Mi_Fa.txt":
-            write_rom_file(fpath, scale_lines)
-        elif not os.path.exists(fpath):
-            write_rom_file(fpath, clair_lines)
+    if args.midi is not None:
+        if args.classical is None:
+            parser.error("O parâmetro --classical (true ou false) é OBRIGATÓRIO ao especificar --midi!")
+        print(f"Convertendo arquivo específico: {args.midi} (classical={args.classical})")
+        lines = convert_midi_to_rom_lines(args.midi, classical=args.classical, as_hex=False)
+        out_base = os.path.splitext(os.path.basename(args.midi))[0]
+        out_txt = os.path.join(args.out_dir, f"{out_base}.txt")
+        write_rom_file(out_txt, lines)
+        out_mid = os.path.join(args.out_dir, ".mid", f"{out_base}_melodia.mid")
+        words_to_midi(lines, out_mid)
+        print(f"[OK] Gerado {out_txt} e {out_mid}")
+        return
 
-    # 2. Gera Mega-ROM contígua (partituras.hex) e tabela de offsets (tabela_offsets_partituras.v)
+    sub_mid_dir = os.path.join(args.out_dir, ".mid")
+
+    scale_bin = generate_scale_rom_lines(as_hex=False)
+    write_rom_file(os.path.join(args.out_dir, "Do_Re_Mi_Fa.txt"), scale_bin)
+    words_to_midi(scale_bin, os.path.join(sub_mid_dir, "Do_Re_Mi_Fa_escala.mid"))
+
+    converted_individual = []
+
+    for song_name in SONG_CATALOG:
+        cfg = SONG_CONFIG.get(song_name, {})
+        allowed_channels = cfg.get("channels", None)
+        exclude_channels = cfg.get("exclude_channels", None)
+        classical = cfg.get("classical", None)
+
+        file_names = cfg.get("files", [f"{song_name}.mid", f"{song_name.lower()}.mid"])
+        midi_candidates = []
+        for fn in file_names:
+            midi_candidates.append(os.path.join(args.out_dir, fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, "original", fn))
+            midi_candidates.append(os.path.join(sub_mid_dir, "1-canal", fn))
+
+        found_midi = next((c for c in midi_candidates if os.path.exists(c)), None)
+        if found_midi:
+            if classical is None:
+                raise ValueError(
+                    f"Configuração da música '{song_name}' não define o parâmetro obrigatório 'classical'!"
+                )
+            lines_bin = convert_midi_to_rom_lines(
+                found_midi,
+                classical=classical,
+                allowed_channels=allowed_channels,
+                exclude_channels=exclude_channels,
+                as_hex=False,
+            )
+            out_txt = os.path.join(args.out_dir, f"{song_name}.txt")
+            write_rom_file(out_txt, lines_bin)
+            active_cnt = sum(1 for ln in lines_bin if int(ln[-7:], 2) != 0)
+            converted_individual.append((out_txt, active_cnt))
+
+            out_mid = os.path.join(sub_mid_dir, f"{song_name}_melodia.mid")
+            words_to_midi(lines_bin, out_mid)
+
     hex_path, verilog_path = build_mega_rom(music_dir=args.out_dir, verilog_out_dir=".")
 
-    active_count = sum(1 for ln in clair_lines if int(ln[-7:], 2) != 0)
-    print(f"[OK] Gerado legado {clair_path} com {active_count} notas melódicas.")
+    print(f"[OK] Gerados {len(converted_individual)} arquivos individuais .txt em '{args.out_dir}':")
+    for path, cnt in converted_individual:
+        print(f"  - {os.path.basename(path)} ({cnt} notas ativas)")
     print(f"[OK] Gerado Mega-ROM: {hex_path} e tabela de offsets: {verilog_path}")
 
 

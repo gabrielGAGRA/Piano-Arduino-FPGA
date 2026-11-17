@@ -66,7 +66,9 @@ module piano_top #(
   wire        fsm_inc_erro;
   wire [7:0]  fd_acertos;
   wire [7:0]  fd_erros;
+  wire [9:0]  fd_pontos_apre;
   wire        fd_tem_nota_ativa;
+  wire        fd_troca_nota_grav;
   wire        fd_acerto_nota;
   wire        fd_fim_musica;
   wire [2:0]  fd_id_nota;
@@ -76,7 +78,7 @@ module piano_top #(
   wire        fd_mudou_musica;
   wire        s_pwm_out;
   wire        fd_pulso_bpm;
-  wire [1:0]  fd_volume;
+  wire [2:0]  fd_volume;
   wire        fd_mostra_vol;
   wire [31:0] fd_t_passo_metronomo;
   wire [6:0]  fd_leds_cifra;
@@ -98,6 +100,7 @@ module piano_top #(
     .mudou_musica     (fd_mudou_musica),
     .tem_nota_ativa   (fd_tem_nota_ativa),
     .tecla_pressionada(fsm_tecla_pressionada),
+    .troca_nota_grav  (fd_troca_nota_grav),
     .acerto_nota      (fd_acerto_nota),
     .fim_musica       (fd_fim_musica),
     .pulso_bpm        (fd_pulso_bpm),
@@ -141,11 +144,13 @@ module piano_top #(
     .mudou_modo       (fd_mudou_modo),
     .mudou_musica     (fd_mudou_musica),
     .tem_nota_ativa   (fd_tem_nota_ativa),
+    .troca_nota_grav  (fd_troca_nota_grav),
     .acerto_nota      (fd_acerto_nota),
     .fim_musica       (fd_fim_musica),
     .pulso_bpm        (fd_pulso_bpm),
     .acertos          (fd_acertos),
     .erros            (fd_erros),
+    .pontos_apre      (fd_pontos_apre),
     .s_endereco_ram   (),
     .s_id_para_led    (fd_id_nota),
     .out_sel_musica   (s_sel_musica),
@@ -172,6 +177,7 @@ module piano_top #(
     .fim_musica   (fd_fim_musica),
     .acertos      (fd_acertos),
     .erros        (fd_erros),
+    .pontos_apre  (fd_pontos_apre),
     .score        (),
     .saida_serial (saida_serial_dashboard)
   );

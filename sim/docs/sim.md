@@ -52,13 +52,13 @@ python sim/virtual_bench.py
 Para validação em lote e prevenção de regressões lógicas, execute a suíte completa:
 
 ```powershell
-python sim/run_cosim_tests.py
+python sim/tests/run_cosim_tests.py
 ```
 
 ### O que a suíte valida:
 1. **Auditoria de Ponto Flutuante (Xtensa Toolchain):** Compilação com `xtensa-esp32s3-elf-g++ -Werror=double-promotion` e checagem de símbolos via `nm` para garantir zero emulação de `double` por software (`__adddf3`, etc.).
 2. **Lockstep RTL vs C++:** Comparação de 5.000 ciclos entre o motor C++ e a simulação compilada no ModelSim (`vlog`/`vsim`).
-3. **9 Cenários Co-Simulados:**
+3. **12 Cenários Co-Simulados:**
    - Boot e autoteste do ESP32 (Dó4 com desligamento limpo).
    - Modo Livre: prioridade de notas, acordes e transições legato.
    - Troca de oitava e sustenido com tecla segurada (sem zumbis).
@@ -68,7 +68,7 @@ python sim/run_cosim_tests.py
    - Interrupção abrupta de reprodução com nota ativa (troca de modo/música).
    - Tolerância a ruídos UART com ressincronismo no byte de status.
    - Qualidade do áudio: ausência de clipping digital (`±32767`), ruído DC e silêncio anômalo.
-4. **Verilog Linter:** Verificação estrutural do código RTL (`python sim/lint_verilog.py`).
+4. **Verilog Linter:** Verificação estrutural do código RTL (`python scripts/lint_verilog.py`).
 
 ---
 
@@ -86,5 +86,5 @@ Para rodar a co-simulação exatamente na mesma frequência e contagem de ciclos
 
 Ao término de uma simulação ou execução da suíte, os seguintes arquivos são atualizados no diretório `sim/`:
 
-- `sim/cosim_output.wav`: Áudio gerado na saída I2S pelo TinySoundFont (44.1 kHz, 16-bit estéreo). Pode ser reproduzido em qualquer player de mídia para verificação auditiva.
+- `sim/cosim_output.wav`: Áudio gerado na saída I2S pelo TinySoundFont (48 kHz, 16-bit estéreo). Pode ser reproduzido em qualquer player de mídia para verificação auditiva.
 - `sim/cosim_report.json`: Relatório estruturado contendo contadores de ciclos, bytes trafegados, lista de eventos MIDI, métricas de amplitude RMS/Pico e diagnóstico de vozes ativas.

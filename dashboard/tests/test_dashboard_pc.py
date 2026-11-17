@@ -10,8 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Permite importar dashboard_pc tanto da raiz quanto da pasta scripts/
-sys_path = Path(__file__).resolve().parent
+# Permite importar dashboard_pc a partir da pasta dashboard/
+sys_path = Path(__file__).resolve().parent.parent
 if str(sys_path) not in sys.path:
     sys.path.insert(0, str(sys_path))
 

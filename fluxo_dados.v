@@ -33,11 +33,13 @@ module fluxo_dados #(
   output wire        mudou_modo,
   output wire        mudou_musica,
   output wire        tem_nota_ativa,
+  output wire        troca_nota_grav,
   output wire        acerto_nota,
   output wire        fim_musica,
   output wire        pulso_bpm,
   output wire [7:0]  acertos,
   output wire [7:0]  erros,
+  output wire [9:0]  pontos_apre,
   output wire [9:0]  s_endereco_ram,
   output wire [2:0]  s_id_para_led,
   output wire [5:0]  out_sel_musica,
@@ -48,7 +50,7 @@ module fluxo_dados #(
   output wire        led_oitava_up,
   output wire        led_oitava_down,
   output wire        hcsr04_trigger,
-  output wire [1:0]  out_volume,
+  output wire [2:0]  out_volume,
   output wire        mostra_vol,
   output wire [31:0] t_passo_metronomo
 );
@@ -199,23 +201,23 @@ module fluxo_dados #(
   localparam [25:0] CiclosDisplayVol = 125 * CiclosTick8ms;
 
   reg        combo_ativo_reg;
-  reg [1:0]  estado_vol_reg;
+  reg [2:0]  estado_vol_reg;
   reg [25:0] timer_display_vol_reg;
 
   always @(posedge clk or posedge arst) begin
     if (arst) begin
       combo_ativo_reg       <= 1'b0;
-      estado_vol_reg        <= 2'd0;
+      estado_vol_reg        <= 3'd0;
       timer_display_vol_reg <= 26'd0;
     end else begin
       if (s_modo_pressed && s_btn_intensidade_pulse) begin
         combo_ativo_reg       <= 1'b1;
         timer_display_vol_reg <= CiclosDisplayVol;
 
-        if (estado_vol_reg == 2'd2) begin
-          estado_vol_reg <= 2'd0;
+        if (estado_vol_reg == 3'd4) begin
+          estado_vol_reg <= 3'd0;
         end else begin
-          estado_vol_reg <= estado_vol_reg + 2'd1;
+          estado_vol_reg <= estado_vol_reg + 3'd1;
         end
       end else if (!s_modo_pressed) begin
         combo_ativo_reg <= 1'b0;
@@ -383,6 +385,8 @@ module fluxo_dados #(
 
   // Temporizador de Gravacao (Modo 2)
   wire [6:0] s_nota_midi_usuario;
+  wire       s_tem_nota_usuario = s_tem_nota && (s_nota_tocada != 3'd0) &&
+    (s_nota_midi_usuario != 7'd0);
   reg  [6:0] s_velocity_final;
 
   reg [31:0] cont_grav_ciclos_reg;
@@ -391,6 +395,16 @@ module fluxo_dados #(
   reg [6:0]  vel_grav_reg;
   reg [7:0]  duracao_grav_reg;
   reg [7:0]  pausa_grav_reg;
+  reg        grav_sessao_ativa_reg;
+  reg        grav_tem_dados_reg;
+  reg [9:0]  ultimo_end_gravado_reg;
+
+  wire s_troca_nota_grav = (modo_ativo == 2'd2) && s_tem_nota_usuario &&
+    r_tem_nota_grav_prev_reg && (s_nota_midi_usuario != nota_grav_reg);
+  wire s_escreve_pausa_ant = (modo_ativo == 2'd2) && grav_sessao_ativa_reg &&
+    s_tem_nota_usuario && !r_tem_nota_grav_prev_reg &&
+    !escreve_ram && !conta_endereco && !zera_endereco && !fim_musica;
+  assign troca_nota_grav = s_troca_nota_grav;
 
   always @(posedge clk or posedge arst) begin
     if (arst) begin
@@ -400,36 +414,50 @@ module fluxo_dados #(
       vel_grav_reg             <= 7'd0;
       duracao_grav_reg         <= 8'd1;
       pausa_grav_reg           <= 8'd0;
+      grav_sessao_ativa_reg    <= 1'b0;
     end else if (modo_ativo == 2'd2) begin
-      r_tem_nota_grav_prev_reg <= s_tem_nota;
-      if (zera_endereco || conta_endereco) begin
-        cont_grav_ciclos_reg <= 32'd0;
-        duracao_grav_reg     <= 8'd1;
-        pausa_grav_reg       <= 8'd0;
-      end else if (s_tem_nota) begin
-        nota_grav_reg <= s_nota_midi_usuario;
-        vel_grav_reg  <= s_velocity_final;
-        if (!r_tem_nota_grav_prev_reg) begin
-          cont_grav_ciclos_reg <= 32'd0;
-        end else if (cont_grav_ciclos_reg >= (CiclosTick8ms - 1)) begin
-          cont_grav_ciclos_reg <= 32'd0;
-          if (duracao_grav_reg < 8'd255) begin
-            duracao_grav_reg <= duracao_grav_reg + 8'd1;
-          end
-        end else begin
-          cont_grav_ciclos_reg <= cont_grav_ciclos_reg + 32'd1;
-        end
+      if (zera_endereco) begin
+        cont_grav_ciclos_reg     <= 32'd0;
+        r_tem_nota_grav_prev_reg <= 1'b0;
+        duracao_grav_reg         <= 8'd1;
+        pausa_grav_reg           <= 8'd0;
+        grav_sessao_ativa_reg    <= 1'b0;
       end else begin
-        if (r_tem_nota_grav_prev_reg) begin
-          cont_grav_ciclos_reg <= 32'd0;
-        end else if (!escreve_ram) begin
-          if (cont_grav_ciclos_reg >= (CiclosTick8ms - 1)) begin
+        r_tem_nota_grav_prev_reg <= s_tem_nota_usuario;
+        if (s_tem_nota_usuario) begin
+          if (escreve_ram) begin
+            grav_sessao_ativa_reg <= 1'b1;
+          end
+          if (!r_tem_nota_grav_prev_reg || s_troca_nota_grav) begin
             cont_grav_ciclos_reg <= 32'd0;
-            if (pausa_grav_reg < 8'd255) begin
-              pausa_grav_reg <= pausa_grav_reg + 8'd1;
+            nota_grav_reg        <= s_nota_midi_usuario;
+            vel_grav_reg         <= 7'd127;
+            duracao_grav_reg     <= 8'd1;
+            pausa_grav_reg       <= 8'd0;
+          end else if (cont_grav_ciclos_reg >= (CiclosTick8ms - 1)) begin
+            cont_grav_ciclos_reg <= 32'd0;
+            if (duracao_grav_reg < 8'd255) begin
+              duracao_grav_reg <= duracao_grav_reg + 8'd1;
             end
           end else begin
             cont_grav_ciclos_reg <= cont_grav_ciclos_reg + 32'd1;
+          end
+        end else begin
+          if (escreve_ram) begin
+            grav_sessao_ativa_reg <= 1'b1;
+          end
+          if (r_tem_nota_grav_prev_reg || escreve_ram || conta_endereco) begin
+            cont_grav_ciclos_reg <= 32'd0;
+            pausa_grav_reg       <= 8'd0;
+          end else if (grav_sessao_ativa_reg) begin
+            if (cont_grav_ciclos_reg >= (CiclosTick8ms - 1)) begin
+              cont_grav_ciclos_reg <= 32'd0;
+              if (pausa_grav_reg < 8'd255) begin
+                pausa_grav_reg <= pausa_grav_reg + 8'd1;
+              end
+            end else begin
+              cont_grav_ciclos_reg <= cont_grav_ciclos_reg + 32'd1;
+            end
           end
         end
       end
@@ -438,19 +466,22 @@ module fluxo_dados #(
       r_tem_nota_grav_prev_reg <= 1'b0;
       duracao_grav_reg         <= 8'd1;
       pausa_grav_reg           <= 8'd0;
+      grav_sessao_ativa_reg    <= 1'b0;
     end
   end
 
   wire [29:0] d_ram39;
   wire [29:0] nota_paragravar = {pausa_grav_reg, duracao_grav_reg, vel_grav_reg, nota_grav_reg};
+  wire        s_we_ram        = escreve_ram || s_escreve_pausa_ant;
+  wire [9:0]  s_end_ram       = s_escreve_pausa_ant ? ultimo_end_gravado_reg : s_endereco_ram;
 
   sync_ram #(
     .DataWidth(30),
     .AddrWidth(10)
   ) sync_ram_gravacao (
     .clk     (clk),
-    .we      (escreve_ram),
-    .address (s_endereco_ram),
+    .we      (s_we_ram),
+    .address (s_end_ram),
     .data_in (nota_paragravar),
     .data_out(d_ram39)
   );
@@ -458,14 +489,8 @@ module fluxo_dados #(
   wire [29:0] s_dado_ram = (mux_sel == 6'd42) ? d_ram39 : d_rom_partituras;
 
   // Controle de fim da gravacao na RAM
-  reg       grav_tem_dados_reg;
-  reg [9:0] ultimo_end_gravado_reg;
-
   always @(posedge clk or posedge arst) begin
     if (arst) begin
-      grav_tem_dados_reg     <= 1'b0;
-      ultimo_end_gravado_reg <= 10'd0;
-    end else if ((modo_ativo == 2'd2) && zera_endereco) begin
       grav_tem_dados_reg     <= 1'b0;
       ultimo_end_gravado_reg <= 10'd0;
     end else if (escreve_ram) begin
@@ -551,7 +576,6 @@ module fluxo_dados #(
 
   wire s_is_demo = (modo_ativo == 2'd3);
   reg  r_nota_ativa_bpm_reg;
-  wire s_tem_nota_usuario = s_tem_nota && (s_nota_tocada != 3'd0) && (s_nota_midi_usuario != 7'd0);
   wire s_tem_nota_final = s_is_demo ?
     ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota_usuario;
 
@@ -560,16 +584,19 @@ module fluxo_dados #(
 
   always @* begin
     case (estado_vol_reg)
-      2'd0:    s_velocity_final = s_vel_base;
-      2'd1:    s_velocity_final = (s_vel_base >> 1'b1) + (s_vel_base >> 2'd2);
-      2'd2:    s_velocity_final = (s_vel_base >> 1'b1);
+      3'd0:    s_velocity_final = s_vel_base;
+      3'd1:    s_velocity_final = (s_vel_base >> 1'b1) + (s_vel_base >> 2'd2);
+      3'd2:    s_velocity_final = (s_vel_base >> 1'b1);
+      3'd3:    s_velocity_final = (s_vel_base >> 2'd2);
+      3'd4:    s_velocity_final = 7'd0;
       default: s_velocity_final = s_vel_base;
     endcase
   end
 
-  wire [6:0] s_nota_midi_desejada = s_is_demo ?
-    (r_nota_ativa_bpm_reg ? s_nota_midi_rom : 7'd0) :
-    (s_tem_nota_usuario ? s_nota_midi_usuario : 7'd0);
+  wire s_mudo = (estado_vol_reg == 3'd4) || (s_velocity_final == 7'd0);
+  wire [6:0] s_nota_midi_desejada = s_mudo ? 7'd0 :
+    (s_is_demo ? (r_nota_ativa_bpm_reg ? s_nota_midi_rom : 7'd0) :
+      (s_tem_nota_usuario ? s_nota_midi_usuario : 7'd0));
 
   gerenciador_midi_tx #(
     .ClockDiv(ClockDivUart)
@@ -685,7 +712,7 @@ module fluxo_dados #(
 
   // Temporizador do Modo Demonstracao (Modo 3)
   wire [7:0] s_dur_efetiva      = (s_duracao_rom == 8'd0) ? 8'd1 : s_duracao_rom;
-  wire [7:0] s_pausa_efetiva    = (s_pausa_rom == 8'd0) ? 8'd1 : s_pausa_rom;
+  wire [7:0] s_pausa_efetiva    = s_pausa_rom;
   wire [8:0] s_total_ticks_demo = {1'b0, s_dur_efetiva} + {1'b0, s_pausa_efetiva};
 
   reg [31:0] cont_demo_ciclos_reg;
@@ -739,6 +766,86 @@ module fluxo_dados #(
       r_aguarda_rom_demo_reg <= 1'b0;
     end
   end
+
+  // Pontuacao de Ritmo e Duracao (Modo 1 - Aprendizado)
+  reg [31:0] cont_apre_ciclos_reg;
+  reg [7:0]  dur_apre_reg;
+  reg [7:0]  pausa_apre_reg;
+  reg [7:0]  pausa_esperada_apre_reg;
+  reg        ja_acertou_apre_reg;
+  reg        acertou_nota_atual_reg;
+  reg [9:0]  pontos_apre_reg;
+
+  wire [7:0] s_diff_pausa_apre = (pausa_apre_reg > pausa_esperada_apre_reg) ?
+    (pausa_apre_reg - pausa_esperada_apre_reg) :
+    (pausa_esperada_apre_reg - pausa_apre_reg);
+  wire [7:0] s_tol_pausa_apre = (pausa_esperada_apre_reg >> 1'b1) + 8'd2;
+  wire       s_acerto_pausa_apre = (!ja_acertou_apre_reg) ||
+    (s_diff_pausa_apre <= s_tol_pausa_apre);
+
+  wire [7:0] s_diff_dur_apre = (dur_apre_reg > s_dur_efetiva) ?
+    (dur_apre_reg - s_dur_efetiva) : (s_dur_efetiva - dur_apre_reg);
+  wire [7:0] s_tol_dur_apre = (s_dur_efetiva >> 1'b1) + 8'd4;
+  wire       s_acerto_dur_apre = (s_diff_dur_apre <= s_tol_dur_apre);
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      cont_apre_ciclos_reg    <= 32'd0;
+      dur_apre_reg            <= 8'd1;
+      pausa_apre_reg          <= 8'd0;
+      pausa_esperada_apre_reg <= 8'd0;
+      ja_acertou_apre_reg     <= 1'b0;
+      acertou_nota_atual_reg  <= 1'b0;
+      pontos_apre_reg         <= 10'd0;
+    end else if (sclr_contadores) begin
+      cont_apre_ciclos_reg    <= 32'd0;
+      dur_apre_reg            <= 8'd1;
+      pausa_apre_reg          <= 8'd0;
+      pausa_esperada_apre_reg <= 8'd0;
+      ja_acertou_apre_reg     <= 1'b0;
+      acertou_nota_atual_reg  <= 1'b0;
+      pontos_apre_reg         <= 10'd0;
+    end else if (modo_ativo == 2'd1) begin
+      if (inc_acerto && (acertos != 8'd255)) begin
+        acertou_nota_atual_reg <= 1'b1;
+        cont_apre_ciclos_reg   <= 32'd0;
+        dur_apre_reg           <= 8'd1;
+        pontos_apre_reg        <= pontos_apre_reg +
+          (s_acerto_pausa_apre ? 10'd3 : 10'd2);
+      end else if (acertou_nota_atual_reg) begin
+        if (s_tem_nota_usuario) begin
+          if (cont_apre_ciclos_reg >= (CiclosTick8ms - 1)) begin
+            cont_apre_ciclos_reg <= 32'd0;
+            if (dur_apre_reg < 8'd255) begin
+              dur_apre_reg <= dur_apre_reg + 8'd1;
+            end
+          end else begin
+            cont_apre_ciclos_reg <= cont_apre_ciclos_reg + 32'd1;
+          end
+        end else begin
+          acertou_nota_atual_reg  <= 1'b0;
+          ja_acertou_apre_reg     <= 1'b1;
+          pausa_esperada_apre_reg <= s_pausa_rom;
+          cont_apre_ciclos_reg    <= 32'd0;
+          pausa_apre_reg          <= 8'd0;
+          if (s_acerto_dur_apre) begin
+            pontos_apre_reg <= pontos_apre_reg + 10'd1;
+          end
+        end
+      end else if (ja_acertou_apre_reg && !s_tem_nota_usuario) begin
+        if (cont_apre_ciclos_reg >= (CiclosTick8ms - 1)) begin
+          cont_apre_ciclos_reg <= 32'd0;
+          if (pausa_apre_reg < 8'd255) begin
+            pausa_apre_reg <= pausa_apre_reg + 8'd1;
+          end
+        end else begin
+          cont_apre_ciclos_reg <= cont_apre_ciclos_reg + 32'd1;
+        end
+      end
+    end
+  end
+
+  assign pontos_apre = pontos_apre_reg;
 
 endmodule
 

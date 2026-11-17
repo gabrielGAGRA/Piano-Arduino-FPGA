@@ -11,7 +11,7 @@ module dashboard (
   input  wire [5:0] sel_musica,
   input  wire [2:0] id_nota,
   input  wire       pwm_out,
-  input  wire [1:0] volume,
+  input  wire [2:0] volume,
   input  wire       mostra_vol,
   input  wire [6:0] nota_display,
   output wire [6:0] hex5_modo,

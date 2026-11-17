@@ -18,6 +18,7 @@ module avaliador_desempenho_tb;
   reg        fim_musica;
   reg [7:0]  acertos;
   reg [7:0]  erros;
+  reg [9:0]  pontos_apre;
 
   wire [7:0] score;
   wire       saida_serial;
@@ -38,6 +39,7 @@ module avaliador_desempenho_tb;
     .fim_musica  (fim_musica),
     .acertos     (acertos),
     .erros       (erros),
+    .pontos_apre (pontos_apre),
     .score       (score),
     .saida_serial(saida_serial)
   );
@@ -55,8 +57,9 @@ module avaliador_desempenho_tb;
       modo_ativo <= 2'd0;
       sel_musica <= 6'd4;
       fim_musica <= 1'b0;
-      acertos    <= 8'd0;
-      erros      <= 8'd0;
+      acertos     <= 8'd0;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd0;
       repeat (2) @(posedge clk);
       @(negedge clk) arst <= 1'b0;
       @(posedge clk);
@@ -128,8 +131,9 @@ module avaliador_desempenho_tb;
       // 1. Modo 1 com acertos=0 e erros=0 nao deve iniciar envio serial
       @(negedge clk);
       modo_ativo <= 2'd1;
-      acertos    <= 8'd0;
-      erros      <= 8'd0;
+      acertos     <= 8'd0;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd0;
       repeat (2) @(posedge clk);
 
       @(negedge clk);
@@ -150,9 +154,10 @@ module avaliador_desempenho_tb;
 
       // 2. Fora do Modo 1 (modo_ativo=0), nao deve enviar mesmo com tentativas
       @(negedge clk);
-      modo_ativo <= 2'd0;
-      acertos    <= 8'd2;
-      erros      <= 8'd1;
+      modo_ativo  <= 2'd0;
+      acertos     <= 8'd2;
+      erros       <= 8'd1;
+      pontos_apre <= 10'd8;
       repeat (2) @(posedge clk);
       #1;
       expect_score(8'd66, "SCORE_MODO0_CALC");
@@ -187,10 +192,11 @@ module avaliador_desempenho_tb;
       setup();
 
       @(negedge clk);
-      modo_ativo <= 2'd1;
-      sel_musica <= 6'd4;
-      acertos    <= 8'd1;
-      erros      <= 8'd1;
+      modo_ativo  <= 2'd1;
+      sel_musica  <= 6'd4;
+      acertos     <= 8'd1;
+      erros       <= 8'd1;
+      pontos_apre <= 10'd4;
       repeat (2) @(posedge clk);
       #1;
       expect_score(8'd50, "SCORE_50_PERCENT");
@@ -232,20 +238,66 @@ module avaliador_desempenho_tb;
       setup();
 
       @(negedge clk);
-      modo_ativo <= 2'd1;
-      acertos    <= 8'd200;
-      erros      <= 8'd100;
+      modo_ativo  <= 2'd1;
+      acertos     <= 8'd200;
+      erros       <= 8'd100;
+      pontos_apre <= 10'd800;
       repeat (2) @(posedge clk);
       #1;
-      // 200 * 100 / 300 = 66%
+      // 800 * 100 / (300 * 4) = 66%
       expect_score(8'd66, "OVERFLOW_SUM_GT_255");
 
       @(negedge clk);
-      acertos <= 8'd255;
-      erros   <= 8'd0;
+      acertos     <= 8'd255;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd1020;
       repeat (2) @(posedge clk);
       #1;
       expect_score(8'd100, "SCORE_100_PERCENT");
+    end
+  endtask
+
+  task test_pontuacao_proporcional_ritmo;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      // 1. Pontuacao maxima de ritmo (acertos * 4) -> 100%
+      @(negedge clk);
+      modo_ativo  <= 2'd1;
+      acertos     <= 8'd7;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd28;
+      repeat (2) @(posedge clk);
+      #1;
+      expect_score(8'd100, "RITMO_COMPLETO_100");
+
+      // 2. Pontuacao reduzida de ritmo (acertos * 2) -> 50%
+      @(negedge clk);
+      acertos     <= 8'd7;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd14;
+      repeat (2) @(posedge clk);
+      #1;
+      expect_score(8'd50, "RITMO_REDUZIDO_50");
+
+      // 3. Rushed com 1 erro (7 acertos, 1 erro, 15 pontos) -> 46%
+      @(negedge clk);
+      acertos     <= 8'd7;
+      erros       <= 8'd1;
+      pontos_apre <= 10'd15;
+      repeat (2) @(posedge clk);
+      #1;
+      expect_score(8'd46, "RITMO_RUSHED_46");
+
+      // 4. Saturacao em 100% se pontos_apre exceder max_pontos
+      @(negedge clk);
+      acertos     <= 8'd2;
+      erros       <= 8'd0;
+      pontos_apre <= 10'd15;
+      repeat (2) @(posedge clk);
+      #1;
+      expect_score(8'd100, "RITMO_CLAMP_100");
     end
   endtask
 
@@ -253,6 +305,7 @@ module avaliador_desempenho_tb;
     test_sem_tentativas_nao_envia();
     test_envio_pacote_uart_modo_assistido();
     test_overflow_soma_16bits();
+    test_pontuacao_proporcional_ritmo();
 
     if (errors == 0) begin
       $display("RESULT: ALL TESTS PASSED! (Tests: %0d)", tests_run);

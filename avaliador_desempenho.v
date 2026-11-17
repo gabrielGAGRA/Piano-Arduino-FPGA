@@ -15,6 +15,7 @@ module avaliador_desempenho #(
   input  wire        fim_musica,
   input  wire [7:0]  acertos,
   input  wire [7:0]  erros,
+  input  wire [9:0]  pontos_apre,
   output wire [7:0]  score,
   output wire        saida_serial
 );
@@ -53,6 +54,7 @@ module avaliador_desempenho #(
     .fim_musica      (fim_musica),
     .acertos         (acertos),
     .erros           (erros),
+    .pontos_apre     (pontos_apre),
     .envio_necessario(envio_necessario),
     .tx_pronto       (tx_pronto),
     .fim_bytes       (fim_bytes),

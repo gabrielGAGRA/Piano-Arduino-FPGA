@@ -215,5 +215,5 @@ def run_fpu_audit(repo_root: Path) -> int:
 
 
 if __name__ == "__main__":
-  root = Path(__file__).resolve().parent.parent
+  root = Path(__file__).resolve().parents[2]
   sys.exit(run_fpu_audit(root))

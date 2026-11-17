@@ -2,7 +2,7 @@
 """
 Bancada Virtual Interativa: FPGA Cyclone V (DE0-CV) + ESP32-S3 MIDI Synth.
 
-Interface grafica leve em Tkinter com audio PCM 44.1 kHz 16-bit estereo em
+Interface grafica leve em Tkinter com audio PCM 48 kHz 16-bit estereo em
 tempo real via WinMM (waveOutOpen/waveOutWrite) conectado diretamente ao motor
 ciclo-exato C++ (sim/cosim_engine.dll):
   - Displays de 7 segmentos HEX5..HEX0 renderizados a partir dos pinos da FPGA
@@ -19,6 +19,10 @@ from pathlib import Path
 import sys
 import time
 from typing import List, Optional
+
+_TESTS_DIR = str(Path(__file__).resolve().parent / "tests")
+if _TESTS_DIR not in sys.path:
+  sys.path.insert(0, _TESTS_DIR)
 
 from run_cosim_tests import build_cosim_binaries
 
@@ -116,7 +120,7 @@ class CoSimBenchStatus(ctypes.Structure):
   ]
 
 
-# Estruturas WinMM WaveOut (44.1 kHz 16-bit Estereo)
+# Estruturas WinMM WaveOut (48 kHz 16-bit Estereo)
 class WAVEFORMATEX(ctypes.Structure):
   _fields_ = [
       ("wFormatTag", ctypes.c_uint16),
@@ -149,9 +153,9 @@ WHDR_PREPARED = 0x00000002
 
 
 class WinMMAudioStream:
-  """Streaming PCM 44.1 kHz 16-bit Estereo de baixa latencia via winmm.dll."""
+  """Streaming PCM 48 kHz 16-bit Estereo de baixa latencia via winmm.dll."""
 
-  def __init__(self, sample_rate: int = 44100, num_buffers: int = 12):
+  def __init__(self, sample_rate: int = 48000, num_buffers: int = 12):
     self.available = False
     self.hwaveout = ctypes.c_void_p(0)
     self.num_buffers = num_buffers
@@ -282,7 +286,8 @@ def run_self_test(repo_root: Path) -> int:
 
   audio = WinMMAudioStream()
   blocks_per_step = 3
-  pcm_buf = (ctypes.c_int16 * (256 * 2 * blocks_per_step))()
+  max_blocks_step = 4
+  pcm_buf = (ctypes.c_int16 * (256 * 2 * max_blocks_step))()
   status = CoSimBenchStatus()
 
   # Passo 1: Estado inicial no Modo 0 (Livre), Oitava 4
@@ -296,7 +301,7 @@ def run_self_test(repo_root: Path) -> int:
   # Passo 2: Toca tecla Do4 (gpio_keys = 0x01)
   dll.cosim_set_inputs(0x01, 0, 1, 1, 1, 1, 1, 1)
   dll.cosim_step_audio_blocks(blocks_per_step, pcm_buf, ctypes.byref(status))
-  audio.write_pcm(pcm_buf, ctypes.sizeof(pcm_buf))
+  audio.write_pcm(pcm_buf, blocks_per_step * 256 * 4)
   assert status.tsf_sustained_voices > 0, "Voz de Do4 nao ativou na bancada virtual"
   assert status.peak_l > 100 and status.peak_r > 100, "Pico de audio zerado ao tocar Do4"
   assert status.hex1_nota == 0x46, f"HEX1 esperado 0x46 ('C'), obtido {status.hex1_nota:#x}"
@@ -308,23 +313,104 @@ def run_self_test(repo_root: Path) -> int:
   assert status.stuck_note_alert == 0, "Alerta de nota presa disparou indevidamente"
   assert status.overlap_violations == 0, "Violacao de sobreposicao MIDI detectada"
 
-  # Passo 4: Testa Combo de Volume (Modo + Intensidade) e retorno dos displays HEX apos 1s
-  dll.cosim_set_inputs(0x00, 0, 0, 1, 1, 1, 1, 1)
-  dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
-  dll.cosim_set_inputs(0x00, 0, 0, 1, 0, 1, 1, 1)
-  dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
-  dll.cosim_set_inputs(0x00, 0, 0, 1, 1, 1, 1, 1)
-  dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
-  dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
-  dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
-  assert status.modo_ativo == 0, "Combo de volume alterou o modo indevidamente"
-  assert status.volume_state == 1 and status.mostra_vol == 1, "Combo nao ativou 75%"
-  assert status.hex4_oitava == 0x78 and status.hex3_musica_dezena == 0x12, "HEX nao exibiu 75P"
+  # Passo 4: Testa Combo de Volume para todos os 5 niveis (100 -> 75 -> 50 -> 25 -> 0 -> 100%)
+  def pulse_vol_combo():
+    dll.cosim_set_inputs(0x00, 0, 0, 1, 1, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+    dll.cosim_set_inputs(0x00, 0, 0, 1, 0, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+    dll.cosim_set_inputs(0x00, 0, 0, 1, 1, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+    dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
 
-  # Avanca ~1s (~180 blocos de 5.8ms) e verifica que mostra_vol expira e HEX volta ao normal
-  for _ in range(60):
+  def pulse_btn(modo_n=1, mus_n=1):
+    dll.cosim_set_inputs(0x00, 0, modo_n, mus_n, 1, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+    dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+
+  expected_vol_hex = [
+      (1, 0x7F, 0x78, 0x12, 0x0C, " 75P"),
+      (2, 0x7F, 0x12, 0x40, 0x0C, " 50P"),
+      (3, 0x7F, 0x24, 0x12, 0x0C, " 25P"),
+      (4, 0x7F, 0x7F, 0x40, 0x0C, "  0P"),
+      (0, 0x79, 0x40, 0x40, 0x0C, "100P"),
+  ]
+  for exp_v, h5, h4, h3, h2, label in expected_vol_hex:
+    pulse_vol_combo()
+    assert status.modo_ativo == 0, "Combo de volume alterou o modo indevidamente"
+    assert status.volume_state == exp_v and status.mostra_vol == 1, (
+        f"Combo nao ativou volume state {exp_v} ({label})"
+    )
+    assert (
+        status.hex5_modo == h5
+        and status.hex4_oitava == h4
+        and status.hex3_musica_dezena == h3
+        and status.hex2_musica_unidade == h2
+    ), f"HEX nao exibiu '{label}'"
+    if exp_v == 4:
+      # Em 0% (mudo), pressionar tecla nao deve sustentar voz no TSF
+      dll.cosim_set_inputs(0x01, 0, 1, 1, 1, 1, 1, 1)
+      dll.cosim_step_audio_blocks(blocks_per_step, pcm_buf, ctypes.byref(status))
+      assert status.tsf_sustained_voices == 0, "Tecla gerou voz sustentada em volume 0%!"
+      dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+      dll.cosim_step_audio_blocks(blocks_per_step, pcm_buf, ctypes.byref(status))
+
+  # Avanca ~1s (~195 blocos de 5.33ms @ 48 kHz) e verifica que mostra_vol expira e HEX volta ao normal
+  for _ in range(65):
     dll.cosim_step_audio_blocks(blocks_per_step, pcm_buf, ctypes.byref(status))
   assert status.mostra_vol == 0 and status.hex4_oitava == 0x19, "HEX4 nao voltou para oitava 4 apos 1s"
+
+  # Passo 5: Gravacao no Modo 2 + Persistencia da RAM ao passar pelo Modo 2 sem teclas + Playback Modo 3
+  pulse_btn(modo_n=0)  # 0 -> 1
+  pulse_btn(modo_n=0)  # 1 -> 2
+  assert status.modo_ativo == 2, f"Esperado Modo 2, obtido {status.modo_ativo}"
+
+  # Grava Do4 e Mi4
+  dll.cosim_set_inputs(0x01, 0, 1, 1, 1, 1, 1, 1)
+  dll.cosim_step_audio_blocks(4, pcm_buf, ctypes.byref(status))
+  dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+  dll.cosim_step_audio_blocks(3, pcm_buf, ctypes.byref(status))
+  dll.cosim_set_inputs(0x04, 0, 1, 1, 1, 1, 1, 1)
+  dll.cosim_step_audio_blocks(4, pcm_buf, ctypes.byref(status))
+  dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+  dll.cosim_step_audio_blocks(3, pcm_buf, ctypes.byref(status))
+  assert status.endereco_partitura == 2, f"Esperado endereco 2 apos 2 notas, obtido {status.endereco_partitura}"
+
+  # Cicla 2 -> 3 -> 0 -> 1 -> 2 (sem pressionar teclas) -> 3 para validar persistencia da RAM
+  pulse_btn(modo_n=0)  # 2 -> 3
+  pulse_btn(modo_n=0)  # 3 -> 0
+  pulse_btn(modo_n=0)  # 0 -> 1
+  pulse_btn(modo_n=0)  # 1 -> 2 (sem tocar teclas)
+  assert status.modo_ativo == 2
+  pulse_btn(modo_n=0)  # 2 -> 3
+  assert status.modo_ativo == 3
+
+  for _ in range(43):
+    if status.sel_musica == 42:
+      break
+    pulse_btn(mus_n=0)
+  assert status.sel_musica == 42, "Nao selecionou slot 42 (RAM) no Modo 3"
+
+  note_on_before = status.midi_note_on_count
+  saw_c4 = False
+  saw_e4 = False
+  dll.cosim_set_inputs(0x01, 0, 1, 1, 1, 1, 1, 1)
+  dll.cosim_step_audio_blocks(3, pcm_buf, ctypes.byref(status))
+  dll.cosim_set_inputs(0x00, 0, 1, 1, 1, 1, 1, 1)
+  for _ in range(20):
+    dll.cosim_step_audio_blocks(2, pcm_buf, ctypes.byref(status))
+    if status.last_midi_data1 == 60:
+      saw_c4 = True
+    if status.last_midi_data1 == 64:
+      saw_e4 = True
+  assert status.midi_note_on_count >= note_on_before + 2 and saw_c4 and saw_e4, (
+      "Playback da RAM no Modo 3 falhou apos passar pelo Modo 2 sem pressionar teclas"
+  )
+  assert status.tsf_sustained_voices == 0 and status.overlap_violations == 0, (
+      "Voz presa ou overlap detectado no playback da RAM"
+  )
 
   audio.close()
   print("[SELF-TEST] Validando loop interativo Tkinter (launch_gui auto_test)...")
@@ -666,14 +752,14 @@ def launch_gui(
 
   tk.Label(
       esp_top,
-      text="MONITOR ESP32-S3 (UART1 115200 8N1 -> TinySoundFont -> I2S 44.1 kHz)",
+      text="MONITOR ESP32-S3 (UART1 115200 8N1 -> TinySoundFont -> I2S 48 kHz)",
       fg="#c678dd",
       bg="#21252b",
       font=("Consolas", 10, "bold"),
   ).pack(side=tk.LEFT)
 
   audio_status_txt = (
-      "Audio Tempo Real: ATIVO (WinMM 44.1 kHz)"
+      "Audio Tempo Real: ATIVO (WinMM 48 kHz)"
       if audio.available
       else "Audio Tempo Real: INDISPONIVEL"
   )
@@ -698,7 +784,7 @@ def launch_gui(
   stuck_alert_lbl.pack(side=tk.RIGHT, padx=10)
 
   esp_info_var = tk.StringVar(
-      value="Vozes TSF: 0/12 (Sustentadas: 0) | Ultimo MIDI: --- | UART Bytes: 0"
+      value="Vozes TSF: 0/7 (Sustentadas: 0) | Ultimo MIDI: --- | UART Bytes: 0"
   )
   tk.Label(
       esp_frame,
@@ -786,8 +872,8 @@ def launch_gui(
     dt = max(0.005, min(0.045, now - last_tick_time[0]))
     last_tick_time[0] = now
 
-    # Calcula quantos blocos de 256 frames (5.805 ms) sintetizar para acompanhar 1:1 o relogio real
-    exact_blocks = (dt * 44100.0 / 256.0) + frac_blocks_accum[0]
+    # Calcula quantos blocos de 256 frames (5.333 ms) sintetizar para acompanhar 1:1 o relogio real
+    exact_blocks = (dt * 48000.0 / 256.0) + frac_blocks_accum[0]
     blocks_to_run = int(exact_blocks)
     frac_blocks_accum[0] = exact_blocks - blocks_to_run
 
@@ -904,7 +990,7 @@ def launch_gui(
     # Atualiza textos informativos
     m_idx = int(bench_status.modo_ativo)
     s_idx = int(bench_status.sel_musica)
-    vol_map = {0: "100%", 1: "75%", 2: "50%"}
+    vol_map = {0: "100%", 1: "75%", 2: "50%", 3: "25%", 4: "0%"}
     led_br_map = {0: "100%", 1: "80%", 2: "53%", 3: "27%", 4: "0%"}
     mode_info_var.set(MODE_NAMES.get(m_idx, f"Modo {m_idx}"))
     song_info_var.set(
@@ -923,7 +1009,7 @@ def launch_gui(
     d2 = int(bench_status.last_midi_data2)
     midi_cmd_str = "NoteOn" if (st_byte & 0xF0) == 0x90 and d2 > 0 else "NoteOff"
     esp_info_var.set(
-        f"Vozes TSF: {bench_status.tsf_active_voices}/12 "
+        f"Vozes TSF: {bench_status.tsf_active_voices}/7 "
         f"(Sustentadas: {bench_status.tsf_sustained_voices}) | "
         f"Ultimo MIDI: {midi_cmd_str} {midi_note_label(d1)} vel={d2} "
         f"[{st_byte:02X} {d1:02X} {d2:02X}] | "

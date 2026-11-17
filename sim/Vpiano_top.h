@@ -199,6 +199,13 @@ public:
   uint8_t debug_fsm_state() const { return r_uc_state_; }
   uint8_t debug_metro_posicao() const { return r_metro_posicao_; }
   uint8_t debug_estado_intensidade() const { return r_estado_intensidade_; }
+  uint8_t debug_acertos() const { return r_acertos_; }
+  uint8_t debug_erros() const { return r_erros_; }
+  uint16_t debug_pontos_apre() const { return r_pontos_apre_; }
+  uint8_t debug_last_score() const { return r_last_score_; }
+  uint32_t debug_score_count() const { return r_score_count_; }
+  uint8_t debug_grav_tem_dados() const { return r_grav_tem_dados_; }
+  uint16_t debug_ultimo_end_gravado() const { return r_ultimo_end_gravado_; }
   uint32_t debug_read_ram(uint16_t addr) const { return ram_[addr & 0x3FFU]; }
   void debug_set_endereco_ram(uint16_t addr)
   {
@@ -229,7 +236,10 @@ private:
     kUcDemoTocaNota = 13,
     kUcDemoProximo = 14,
     kUcIniciaDemo = 15,
-    kUcLeRamModo1 = 16
+    kUcLeRamModo1 = 16,
+    kUcIncAcerto = 17,
+    kUcIncErro = 18,
+    kUcEsperaSoltarErro = 19
   };
 
   struct Debounce1
@@ -392,6 +402,8 @@ private:
   uint8_t w_fsm_escreve_ram_;
   uint8_t w_fsm_zera_end_;
   uint8_t w_fsm_conta_end_;
+  uint8_t w_fsm_inc_acerto_;
+  uint8_t w_fsm_inc_erro_;
 
   // fluxo_dados registers
   uint8_t r_modo_prev_;
@@ -411,12 +423,25 @@ private:
   uint8_t r_vel_grav_;
   uint8_t r_duracao_grav_;
   uint8_t r_pausa_grav_;
+  uint8_t r_grav_sessao_ativa_;
   uint8_t r_grav_tem_dados_;
   uint16_t r_ultimo_end_gravado_;
 
-  // Learning mode (Modo 1) anti-pop latch registers
+  // Learning mode (Modo 1) anti-pop latch, counters & rhythm scoring registers
   uint8_t r_oitava_apre_;
   uint8_t r_sustenido_apre_;
+  uint8_t r_acertos_;
+  uint8_t r_erros_;
+  uint32_t r_cont_apre_ciclos_;
+  uint8_t r_dur_apre_;
+  uint8_t r_pausa_apre_;
+  uint8_t r_pausa_esperada_apre_;
+  uint8_t r_ja_acertou_apre_;
+  uint8_t r_acertou_nota_atual_;
+  uint16_t r_pontos_apre_;
+  uint8_t r_fim_musica_prev_;
+  uint8_t r_last_score_;
+  uint32_t r_score_count_;
 
   // LED PWM registers
   uint8_t r_estado_intensidade_;
@@ -454,9 +479,17 @@ private:
   uint8_t w_mudou_modo_;
   uint8_t w_mudou_musica_;
   uint8_t w_tem_nota_ativa_;
+  uint8_t w_troca_nota_grav_;
+  uint8_t w_escreve_pausa_ant_;
   uint8_t w_acerto_nota_;
   uint8_t w_fim_musica_;
   uint8_t w_tem_nota_;
+  uint8_t w_sclr_contadores_;
+  uint8_t w_s_tem_nota_usuario_;
+  uint8_t w_s_acerto_pausa_apre_;
+  uint8_t w_s_acerto_dur_apre_;
+  uint8_t w_envio_necessario_;
+  uint8_t w_score_calc_;
   uint8_t w_out_sel_musica_;
   uint16_t w_rom_address_;
   uint32_t w_nota_paragravar_;
@@ -471,6 +504,7 @@ private:
   uint8_t w_sustenido_atual_;
   uint8_t w_nota_midi_usuario_;
   uint8_t w_velocity_final_;
+  uint8_t w_mudo_;
   uint8_t w_nota_midi_desejada_;
   uint8_t w_mostra_vol_;
   uint32_t w_t_passo_metronomo_;
@@ -517,11 +551,24 @@ private:
     r_vel_grav_ = 0;
     r_duracao_grav_ = 1;
     r_pausa_grav_ = 0;
+    r_grav_sessao_ativa_ = 0;
     r_grav_tem_dados_ = 0;
     r_ultimo_end_gravado_ = 0;
 
     r_oitava_apre_ = 4;
     r_sustenido_apre_ = 0;
+    r_acertos_ = 0;
+    r_erros_ = 0;
+    r_cont_apre_ciclos_ = 0;
+    r_dur_apre_ = 1;
+    r_pausa_apre_ = 0;
+    r_pausa_esperada_apre_ = 0;
+    r_ja_acertou_apre_ = 0;
+    r_acertou_nota_atual_ = 0;
+    r_pontos_apre_ = 0;
+    r_fim_musica_prev_ = 0;
+    r_last_score_ = 0;
+    r_score_count_ = 0;
 
     r_estado_intensidade_ = 0;
     r_pwm_counter_ = 0;
@@ -700,11 +747,13 @@ private:
 
   void updateCombinational()
   {
-    // 1. Decode current modo_ativo and outputs of unidade_controle (Mealy/Moore)
+    // 1. Decode current modo_ativo and outputs of unidade_controle (Moore part)
     w_fsm_modo_ativo_ = 0;
     w_fsm_escreve_ram_ = 0;
     w_fsm_zera_end_ = 0;
     w_fsm_conta_end_ = 0;
+    w_fsm_inc_acerto_ = 0;
+    w_fsm_inc_erro_ = 0;
 
     switch (r_uc_state_)
     {
@@ -723,9 +772,18 @@ private:
     case kUcEsperaNota:
     case kUcComparaNota:
     case kUcEsperaSoltar:
+    case kUcEsperaSoltarErro:
     case kUcLeRamModo1:
     case kUcFimMusicaSt:
       w_fsm_modo_ativo_ = 1;
+      break;
+    case kUcIncAcerto:
+      w_fsm_modo_ativo_ = 1;
+      w_fsm_inc_acerto_ = 1;
+      break;
+    case kUcIncErro:
+      w_fsm_modo_ativo_ = 1;
+      w_fsm_inc_erro_ = 1;
       break;
     case kUcProximo:
       w_fsm_modo_ativo_ = 1;
@@ -768,6 +826,10 @@ private:
     w_mudou_modo_ = (s_modo_released && !r_combo_ativo_) ? 1U : 0U;
     w_mudou_musica_ = ed_musica_.pulse();
     w_mostra_vol_ = (r_timer_display_vol_ > 0U) ? 1U : 0U;
+    w_sclr_contadores_ =
+        (w_fsm_zera_end_ || w_mudou_musica_ || (w_fsm_modo_ativo_ != 1U))
+            ? 1U
+            : 0U;
 
     w_out_sel_musica_ = (w_fsm_modo_ativo_ == 2) ? 42U : r_sel_musica_;
     w_tem_nota_ = (db_notas_.out != 0U) ? 1U : 0U;
@@ -829,13 +891,18 @@ private:
         encodeMidiNote(w_oitava_atual_, w_sustenido_atual_, r_nota_tocada_);
 
     uint8_t s_is_demo = (w_fsm_modo_ativo_ == 3) ? 1U : 0U;
-    uint8_t s_tem_nota_usuario =
+    w_s_tem_nota_usuario_ =
         (w_tem_nota_ && (r_nota_tocada_ != 0U) && (w_nota_midi_usuario_ != 0U))
             ? 1U
             : 0U;
     w_tem_nota_ativa_ =
         s_is_demo ? ((w_nota_esperada_ != 0U && r_nota_ativa_bpm_) ? 1U : 0U)
-                  : s_tem_nota_usuario;
+                  : w_s_tem_nota_usuario_;
+    w_troca_nota_grav_ =
+        ((w_fsm_modo_ativo_ == 2U) && w_s_tem_nota_usuario_ &&
+         r_tem_nota_grav_prev_ && (w_nota_midi_usuario_ != r_nota_grav_))
+            ? 1U
+            : 0U;
 
     uint8_t s_vel_base =
         s_is_demo ? ((w_velocity_rom_ == 0U) ? 100U : w_velocity_rom_) : 127U;
@@ -851,14 +918,22 @@ private:
     case 2:
       w_velocity_final_ = (s_vel_base >> 1) & 0x7FU;
       break;
+    case 3:
+      w_velocity_final_ = (s_vel_base >> 2) & 0x7FU;
+      break;
+    case 4:
+      w_velocity_final_ = 0U;
+      break;
     default:
       w_velocity_final_ = s_vel_base;
       break;
     }
 
+    w_mudo_ = ((r_estado_vol_ == 4U) || (w_velocity_final_ == 0U)) ? 1U : 0U;
     w_nota_midi_desejada_ =
-        s_is_demo ? (r_nota_ativa_bpm_ ? w_nota_midi_rom_ : 0U)
-                  : (s_tem_nota_usuario ? w_nota_midi_usuario_ : 0U);
+        w_mudo_ ? 0U
+                : (s_is_demo ? (r_nota_ativa_bpm_ ? w_nota_midi_rom_ : 0U)
+                             : (w_s_tem_nota_usuario_ ? w_nota_midi_usuario_ : 0U));
 
     uint8_t s_id_para_led =
         (w_fsm_modo_ativo_ == 1 || w_fsm_modo_ativo_ == 3) ? w_nota_esperada_
@@ -873,7 +948,53 @@ private:
     w_fim_musica_ =
         (w_fsm_modo_ativo_ == 2) ? cont_fim : ((w_nota_esperada_ == 0U) ? 1U : 0U);
 
-    // Next state of unidade_controle
+    // Rhythm scoring and performance evaluator combinational signals
+    uint16_t s_dur_efetiva_apre = (w_duracao_rom_ == 0U) ? 1U : w_duracao_rom_;
+    uint8_t s_diff_pausa_apre =
+        (r_pausa_apre_ > r_pausa_esperada_apre_)
+            ? static_cast<uint8_t>(r_pausa_apre_ - r_pausa_esperada_apre_)
+            : static_cast<uint8_t>(r_pausa_esperada_apre_ - r_pausa_apre_);
+    uint8_t s_tol_pausa_apre =
+        static_cast<uint8_t>((r_pausa_esperada_apre_ >> 1) + 2U);
+    w_s_acerto_pausa_apre_ =
+        (!r_ja_acertou_apre_ || (s_diff_pausa_apre <= s_tol_pausa_apre))
+            ? 1U
+            : 0U;
+
+    uint16_t s_diff_dur_apre =
+        (r_dur_apre_ > s_dur_efetiva_apre)
+            ? static_cast<uint16_t>(r_dur_apre_ - s_dur_efetiva_apre)
+            : static_cast<uint16_t>(s_dur_efetiva_apre - r_dur_apre_);
+    uint16_t s_tol_dur_apre = (s_dur_efetiva_apre >> 1) + 4U;
+    w_s_acerto_dur_apre_ = (s_diff_dur_apre <= s_tol_dur_apre) ? 1U : 0U;
+
+    uint8_t em_modo_assistido = (w_fsm_modo_ativo_ == 1U) ? 1U : 0U;
+    w_envio_necessario_ =
+        (em_modo_assistido && w_fim_musica_ && !r_fim_musica_prev_ &&
+         ((r_acertos_ != 0U) || (r_erros_ != 0U)))
+            ? 1U
+            : 0U;
+    uint16_t denom_score =
+        static_cast<uint16_t>(r_acertos_) + static_cast<uint16_t>(r_erros_);
+    uint32_t max_pontos = static_cast<uint32_t>(denom_score) << 2U;
+    uint32_t score_num =
+        (denom_score == 0U)
+            ? 0U
+            : ((static_cast<uint32_t>(r_pontos_apre_) * 100U) / max_pontos);
+    if (denom_score == 0U)
+    {
+      w_score_calc_ = 0U;
+    }
+    else if (score_num > 100U)
+    {
+      w_score_calc_ = 100U;
+    }
+    else
+    {
+      w_score_calc_ = static_cast<uint8_t>(score_num & 0xFFU);
+    }
+
+    // 3. Next state and Mealy outputs of unidade_controle
     w_uc_state_next_ = r_uc_state_;
     switch (r_uc_state_)
     {
@@ -885,13 +1006,15 @@ private:
         w_uc_state_next_ = kUcIniciaMusica;
       break;
     case kUcIniciaMusica:
-      w_uc_state_next_ = kUcEsperaNota;
+      w_uc_state_next_ = w_mudou_modo_ ? kUcIniciaGravacao : kUcLeRamModo1;
       break;
     case kUcEsperaNota:
       if (w_mudou_modo_)
         w_uc_state_next_ = kUcIniciaGravacao;
       else if (w_mudou_musica_)
         w_uc_state_next_ = kUcIniciaMusica;
+      else if (w_fim_musica_)
+        w_uc_state_next_ = kUcFimMusicaSt;
       else if (w_tem_nota_ativa_)
         w_uc_state_next_ = kUcComparaNota;
       break;
@@ -901,9 +1024,19 @@ private:
       else if (w_mudou_musica_)
         w_uc_state_next_ = kUcIniciaMusica;
       else if (w_acerto_nota_)
-        w_uc_state_next_ = kUcEsperaSoltar;
+        w_uc_state_next_ = kUcIncAcerto;
       else if (!w_tem_nota_ativa_)
         w_uc_state_next_ = kUcEsperaNota;
+      else
+        w_uc_state_next_ = kUcIncErro;
+      break;
+    case kUcIncAcerto:
+      if (w_mudou_modo_)
+        w_uc_state_next_ = kUcIniciaGravacao;
+      else if (w_mudou_musica_)
+        w_uc_state_next_ = kUcIniciaMusica;
+      else
+        w_uc_state_next_ = kUcEsperaSoltar;
       break;
     case kUcEsperaSoltar:
       if (w_mudou_modo_)
@@ -913,15 +1046,40 @@ private:
       else if (!w_tem_nota_ativa_)
         w_uc_state_next_ = w_fim_musica_ ? kUcFimMusicaSt : kUcProximo;
       break;
-    case kUcProximo:
-      w_uc_state_next_ = kUcLeRamModo1;
-      break;
-    case kUcLeRamModo1:
-      w_uc_state_next_ = kUcEsperaNota;
-      break;
-    case kUcFimMusicaSt:
+    case kUcIncErro:
       if (w_mudou_modo_)
         w_uc_state_next_ = kUcIniciaGravacao;
+      else if (w_mudou_musica_)
+        w_uc_state_next_ = kUcIniciaMusica;
+      else
+        w_uc_state_next_ = kUcEsperaSoltarErro;
+      break;
+    case kUcEsperaSoltarErro:
+      if (w_mudou_modo_)
+        w_uc_state_next_ = kUcIniciaGravacao;
+      else if (w_mudou_musica_)
+        w_uc_state_next_ = kUcIniciaMusica;
+      else if (!w_tem_nota_ativa_)
+        w_uc_state_next_ = kUcEsperaNota;
+      break;
+    case kUcProximo:
+      if (w_mudou_modo_)
+        w_uc_state_next_ = kUcIniciaGravacao;
+      else if (w_mudou_musica_)
+        w_uc_state_next_ = kUcIniciaMusica;
+      else
+        w_uc_state_next_ = kUcLeRamModo1;
+      break;
+    case kUcLeRamModo1:
+      if (w_mudou_modo_)
+        w_uc_state_next_ = kUcIniciaGravacao;
+      else if (w_mudou_musica_)
+        w_uc_state_next_ = kUcIniciaMusica;
+      else
+        w_uc_state_next_ = kUcEsperaNota;
+      break;
+    case kUcFimMusicaSt:
+      w_uc_state_next_ = w_mudou_modo_ ? kUcIniciaGravacao : kUcIniciaMusica;
       break;
     case kUcIniciaGravacao:
       w_uc_state_next_ = kUcGravEsperaNota;
@@ -929,14 +1087,22 @@ private:
     case kUcGravEsperaNota:
       if (w_mudou_modo_)
         w_uc_state_next_ = kUcIniciaDemo;
-      else if (w_tem_nota_ativa_)
+      else if (w_tem_nota_ativa_ && !w_fim_musica_)
         w_uc_state_next_ = kUcGravSoltar;
       break;
     case kUcGravSoltar:
       if (w_mudou_modo_)
         w_uc_state_next_ = kUcIniciaDemo;
+      else if (w_fim_musica_)
+        w_uc_state_next_ = kUcGravEsperaNota;
       else if (!w_tem_nota_ativa_)
         w_uc_state_next_ = kUcGravArmazena;
+      else if (w_troca_nota_grav_)
+      {
+        w_fsm_escreve_ram_ = 1U;
+        w_fsm_conta_end_ = 1U;
+        w_uc_state_next_ = kUcGravSoltar;
+      }
       break;
     case kUcGravArmazena:
       w_uc_state_next_ = kUcGravProximo;
@@ -972,6 +1138,14 @@ private:
       w_uc_state_next_ = kUcInicial;
       break;
     }
+
+    w_escreve_pausa_ant_ =
+        ((w_fsm_modo_ativo_ == 2U) && r_grav_sessao_ativa_ &&
+         w_s_tem_nota_usuario_ && !r_tem_nota_grav_prev_ &&
+         !w_fsm_escreve_ram_ && !w_fsm_conta_end_ && !w_fsm_zera_end_ &&
+         !w_fim_musica_)
+            ? 1U
+            : 0U;
 
     // PWM output
     uint8_t s_duty_cycle = 0xFU;
@@ -1011,31 +1185,66 @@ private:
     saida_serial = r_uart_shift_reg_ & 1U;
     servo_controle = r_servo_controle_ & 1U;
 
+    uint8_t hex5_vol = 0x79U;
+    uint8_t hex4_vol = 0x40U;
+    uint8_t hex3_vol = 0x40U;
+    uint8_t hex2_vol = 0x0CU;
+    switch (r_estado_vol_)
+    {
+    case 0:
+      hex5_vol = 0x79U;
+      hex4_vol = 0x40U;
+      hex3_vol = 0x40U;
+      hex2_vol = 0x0CU;
+      break;
+    case 1:
+      hex5_vol = 0x7FU;
+      hex4_vol = 0x78U;
+      hex3_vol = 0x12U;
+      hex2_vol = 0x0CU;
+      break;
+    case 2:
+      hex5_vol = 0x7FU;
+      hex4_vol = 0x12U;
+      hex3_vol = 0x40U;
+      hex2_vol = 0x0CU;
+      break;
+    case 3:
+      hex5_vol = 0x7FU;
+      hex4_vol = 0x24U;
+      hex3_vol = 0x12U;
+      hex2_vol = 0x0CU;
+      break;
+    case 4:
+      hex5_vol = 0x7FU;
+      hex4_vol = 0x7FU;
+      hex3_vol = 0x40U;
+      hex2_vol = 0x0CU;
+      break;
+    default:
+      hex5_vol = 0x79U;
+      hex4_vol = 0x40U;
+      hex3_vol = 0x40U;
+      hex2_vol = 0x0CU;
+      break;
+    }
+
     uint8_t hex5_normal = decodeHex7Seg(w_fsm_modo_ativo_);
-    hex5_modo = w_mostra_vol_ ? ((r_estado_vol_ == 0U) ? 0x79U : 0x7FU)
-                              : hex5_normal;
+    hex5_modo = w_mostra_vol_ ? hex5_vol : hex5_normal;
 
     uint8_t hex4_normal = decodeHex7Seg(w_oitava_atual_);
-    hex4_oitava =
-        w_mostra_vol_
-            ? ((r_estado_vol_ == 0U) ? 0x40U
-                                     : ((r_estado_vol_ == 1U) ? 0x78U : 0x12U))
-            : hex4_normal;
+    hex4_oitava = w_mostra_vol_ ? hex4_vol : hex4_normal;
 
     uint8_t musica_dez_val = w_out_sel_musica_ / 10U;
     uint8_t musica_uni_val = w_out_sel_musica_ % 10U;
     uint8_t dez_idx =
         (w_fsm_modo_ativo_ == 0U || musica_dez_val == 0U) ? 0x1FU : musica_dez_val;
     uint8_t hex3_normal = decodeHex7Seg(dez_idx);
-    hex3_musica_dezena =
-        w_mostra_vol_
-            ? ((r_estado_vol_ == 0U) ? 0x40U
-                                     : ((r_estado_vol_ == 1U) ? 0x12U : 0x40U))
-            : hex3_normal;
+    hex3_musica_dezena = w_mostra_vol_ ? hex3_vol : hex3_normal;
 
     uint8_t uni_idx = (w_fsm_modo_ativo_ == 0U) ? 0x1FU : musica_uni_val;
     uint8_t hex2_normal = decodeHex7Seg(uni_idx);
-    hex2_musica_unidade = w_mostra_vol_ ? 0x0CU : hex2_normal;
+    hex2_musica_unidade = w_mostra_vol_ ? hex2_vol : hex2_normal;
 
     hex1_nota = fd_leds_cifra;
     hex0_sustenido = w_sustenido_atual_ ? 0x36U : 0x7FU;
@@ -1062,10 +1271,12 @@ private:
 
     // 2. sync_ram_gravacao
     uint16_t ram_addr = r_endereco_ram_ & 0x3FFU;
-    uint32_t next_ram_dout = ram_[ram_addr];
-    if (w_fsm_escreve_ram_)
+    uint16_t ram_wr_addr =
+        w_escreve_pausa_ant_ ? (r_ultimo_end_gravado_ & 0x3FFU) : ram_addr;
+    uint32_t next_ram_dout = ram_[ram_wr_addr];
+    if (w_fsm_escreve_ram_ || w_escreve_pausa_ant_)
     {
-      ram_[ram_addr] = w_nota_paragravar_;
+      ram_[ram_wr_addr] = w_nota_paragravar_;
     }
 
     // 3. contador_m_addr (has .arst(1'b0))
@@ -1147,7 +1358,7 @@ private:
     {
       next_combo_ativo = 1U;
       next_timer_vol = (125U * param_ciclos_tick_8ms) & 0x3FFFFFFU;
-      next_estado_vol = (r_estado_vol_ == 2U) ? 0U : (r_estado_vol_ + 1U);
+      next_estado_vol = (r_estado_vol_ == 4U) ? 0U : (r_estado_vol_ + 1U);
     }
     else if (!old_db_modo)
     {
@@ -1211,6 +1422,110 @@ private:
       }
     }
 
+    // Step Learning Mode (Modo 1) acertos/erros counters, rhythm scoring & evaluator
+    uint8_t next_acertos = r_acertos_;
+    uint8_t next_erros = r_erros_;
+    if (w_sclr_contadores_)
+    {
+      next_acertos = 0U;
+      next_erros = 0U;
+    }
+    else
+    {
+      if (w_fsm_inc_acerto_ && (r_acertos_ != 255U))
+      {
+        next_acertos = (r_acertos_ + 1U) & 0xFFU;
+      }
+      if (w_fsm_inc_erro_ && (r_erros_ != 255U))
+      {
+        next_erros = (r_erros_ + 1U) & 0xFFU;
+      }
+    }
+
+    uint32_t next_cont_apre_ciclos = r_cont_apre_ciclos_;
+    uint8_t next_dur_apre = r_dur_apre_;
+    uint8_t next_pausa_apre = r_pausa_apre_;
+    uint8_t next_pausa_esperada_apre = r_pausa_esperada_apre_;
+    uint8_t next_ja_acertou_apre = r_ja_acertou_apre_;
+    uint8_t next_acertou_nota_atual = r_acertou_nota_atual_;
+    uint16_t next_pontos_apre = r_pontos_apre_;
+
+    if (w_sclr_contadores_)
+    {
+      next_cont_apre_ciclos = 0U;
+      next_dur_apre = 1U;
+      next_pausa_apre = 0U;
+      next_pausa_esperada_apre = 0U;
+      next_ja_acertou_apre = 0U;
+      next_acertou_nota_atual = 0U;
+      next_pontos_apre = 0U;
+    }
+    else if (w_fsm_modo_ativo_ == 1U)
+    {
+      if (w_fsm_inc_acerto_ && (r_acertos_ != 255U))
+      {
+        next_acertou_nota_atual = 1U;
+        next_cont_apre_ciclos = 0U;
+        next_dur_apre = 1U;
+        next_pontos_apre =
+            (r_pontos_apre_ + (w_s_acerto_pausa_apre_ ? 3U : 2U)) & 0x3FFU;
+      }
+      else if (r_acertou_nota_atual_)
+      {
+        if (w_s_tem_nota_usuario_)
+        {
+          if (r_cont_apre_ciclos_ >= (param_ciclos_tick_8ms - 1U))
+          {
+            next_cont_apre_ciclos = 0U;
+            if (r_dur_apre_ < 255U)
+            {
+              next_dur_apre = r_dur_apre_ + 1U;
+            }
+          }
+          else
+          {
+            next_cont_apre_ciclos = r_cont_apre_ciclos_ + 1U;
+          }
+        }
+        else
+        {
+          next_acertou_nota_atual = 0U;
+          next_ja_acertou_apre = 1U;
+          next_pausa_esperada_apre = w_pausa_rom_;
+          next_cont_apre_ciclos = 0U;
+          next_pausa_apre = 0U;
+          if (w_s_acerto_dur_apre_)
+          {
+            next_pontos_apre = (r_pontos_apre_ + 1U) & 0x3FFU;
+          }
+        }
+      }
+      else if (r_ja_acertou_apre_ && !w_s_tem_nota_usuario_)
+      {
+        if (r_cont_apre_ciclos_ >= (param_ciclos_tick_8ms - 1U))
+        {
+          next_cont_apre_ciclos = 0U;
+          if (r_pausa_apre_ < 255U)
+          {
+            next_pausa_apre = r_pausa_apre_ + 1U;
+          }
+        }
+        else
+        {
+          next_cont_apre_ciclos = r_cont_apre_ciclos_ + 1U;
+        }
+      }
+    }
+
+    uint8_t next_fim_musica_prev = w_fim_musica_;
+    uint8_t next_last_score = r_last_score_;
+    uint32_t next_score_count = r_score_count_;
+    if (w_envio_necessario_)
+    {
+      next_last_score = w_score_calc_;
+      next_score_count = r_score_count_ + 1U;
+    }
+
     // Step Recording Timer (Modo 2)
     uint32_t next_cont_grav = r_cont_grav_ciclos_;
     uint8_t next_tem_nota_grav_prev = r_tem_nota_grav_prev_;
@@ -1218,56 +1533,73 @@ private:
     uint8_t next_vel_grav = r_vel_grav_;
     uint8_t next_duracao_grav = r_duracao_grav_;
     uint8_t next_pausa_grav = r_pausa_grav_;
+    uint8_t next_grav_sessao_ativa = r_grav_sessao_ativa_;
 
     if (w_fsm_modo_ativo_ == 2U)
     {
-      next_tem_nota_grav_prev = w_tem_nota_;
-      if (w_fsm_zera_end_ || w_fsm_conta_end_)
+      if (w_fsm_zera_end_)
       {
         next_cont_grav = 0U;
+        next_tem_nota_grav_prev = 0U;
         next_duracao_grav = 1U;
         next_pausa_grav = 0U;
-      }
-      else if (w_tem_nota_)
-      {
-        next_nota_grav = w_nota_midi_usuario_;
-        next_vel_grav = w_velocity_final_;
-        if (!r_tem_nota_grav_prev_)
-        {
-          next_cont_grav = 0U;
-        }
-        else if (r_cont_grav_ciclos_ >= (param_ciclos_tick_8ms - 1U))
-        {
-          next_cont_grav = 0U;
-          if (r_duracao_grav_ < 255U)
-          {
-            next_duracao_grav = r_duracao_grav_ + 1U;
-          }
-        }
-        else
-        {
-          next_cont_grav = r_cont_grav_ciclos_ + 1U;
-        }
+        next_grav_sessao_ativa = 0U;
       }
       else
       {
-        if (r_tem_nota_grav_prev_)
+        next_tem_nota_grav_prev = w_s_tem_nota_usuario_;
+        if (w_s_tem_nota_usuario_)
         {
-          next_cont_grav = 0U;
-        }
-        else if (!w_fsm_escreve_ram_)
-        {
-          if (r_cont_grav_ciclos_ >= (param_ciclos_tick_8ms - 1U))
+          if (w_fsm_escreve_ram_)
+          {
+            next_grav_sessao_ativa = 1U;
+          }
+          if (!r_tem_nota_grav_prev_ || w_troca_nota_grav_)
           {
             next_cont_grav = 0U;
-            if (r_pausa_grav_ < 255U)
+            next_nota_grav = w_nota_midi_usuario_;
+            next_vel_grav = 127U;
+            next_duracao_grav = 1U;
+            next_pausa_grav = 0U;
+          }
+          else if (r_cont_grav_ciclos_ >= (param_ciclos_tick_8ms - 1U))
+          {
+            next_cont_grav = 0U;
+            if (r_duracao_grav_ < 255U)
             {
-              next_pausa_grav = r_pausa_grav_ + 1U;
+              next_duracao_grav = r_duracao_grav_ + 1U;
             }
           }
           else
           {
             next_cont_grav = r_cont_grav_ciclos_ + 1U;
+          }
+        }
+        else
+        {
+          if (w_fsm_escreve_ram_)
+          {
+            next_grav_sessao_ativa = 1U;
+          }
+          if (r_tem_nota_grav_prev_ || w_fsm_escreve_ram_ || w_fsm_conta_end_)
+          {
+            next_cont_grav = 0U;
+            next_pausa_grav = 0U;
+          }
+          else if (r_grav_sessao_ativa_)
+          {
+            if (r_cont_grav_ciclos_ >= (param_ciclos_tick_8ms - 1U))
+            {
+              next_cont_grav = 0U;
+              if (r_pausa_grav_ < 255U)
+              {
+                next_pausa_grav = r_pausa_grav_ + 1U;
+              }
+            }
+            else
+            {
+              next_cont_grav = r_cont_grav_ciclos_ + 1U;
+            }
           }
         }
       }
@@ -1278,17 +1610,13 @@ private:
       next_tem_nota_grav_prev = 0U;
       next_duracao_grav = 1U;
       next_pausa_grav = 0U;
+      next_grav_sessao_ativa = 0U;
     }
 
-    // Step RAM end-of-recording control
+    // Step RAM end-of-recording control (persists across mode switches until overwritten)
     uint8_t next_grav_tem_dados = r_grav_tem_dados_;
     uint16_t next_ultimo_end_gravado = r_ultimo_end_gravado_;
-    if (w_fsm_modo_ativo_ == 2U && w_fsm_zera_end_)
-    {
-      next_grav_tem_dados = 0U;
-      next_ultimo_end_gravado = 0U;
-    }
-    else if (w_fsm_escreve_ram_)
+    if (w_fsm_escreve_ram_)
     {
       next_grav_tem_dados = 1U;
       next_ultimo_end_gravado = r_endereco_ram_;
@@ -1330,7 +1658,7 @@ private:
     uint8_t next_aguarda_rom_demo = r_aguarda_rom_demo_;
 
     uint16_t s_dur_efetiva = (w_duracao_rom_ == 0U) ? 1U : w_duracao_rom_;
-    uint16_t s_pausa_efetiva = (w_pausa_rom_ == 0U) ? 1U : w_pausa_rom_;
+    uint16_t s_pausa_efetiva = w_pausa_rom_;
     uint16_t s_total_ticks_demo = s_dur_efetiva + s_pausa_efetiva;
 
     if (w_fsm_modo_ativo_ == 3U)
@@ -1639,10 +1967,23 @@ private:
     r_vel_grav_ = next_vel_grav;
     r_duracao_grav_ = next_duracao_grav;
     r_pausa_grav_ = next_pausa_grav;
+    r_grav_sessao_ativa_ = next_grav_sessao_ativa;
     r_grav_tem_dados_ = next_grav_tem_dados;
     r_ultimo_end_gravado_ = next_ultimo_end_gravado;
     r_oitava_apre_ = next_oitava_apre;
     r_sustenido_apre_ = next_sustenido_apre;
+    r_acertos_ = next_acertos;
+    r_erros_ = next_erros;
+    r_cont_apre_ciclos_ = next_cont_apre_ciclos;
+    r_dur_apre_ = next_dur_apre;
+    r_pausa_apre_ = next_pausa_apre;
+    r_pausa_esperada_apre_ = next_pausa_esperada_apre;
+    r_ja_acertou_apre_ = next_ja_acertou_apre;
+    r_acertou_nota_atual_ = next_acertou_nota_atual;
+    r_pontos_apre_ = next_pontos_apre;
+    r_fim_musica_prev_ = next_fim_musica_prev;
+    r_last_score_ = next_last_score;
+    r_score_count_ = next_score_count;
     r_estado_intensidade_ = next_estado_intensidade;
     r_pwm_counter_ = next_pwm_counter;
     r_cont_demo_ciclos_ = next_cont_demo;

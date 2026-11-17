@@ -19,6 +19,7 @@ module avaliador_desempenho_fd #(
   input  wire        fim_musica,
   input  wire [7:0]  acertos,
   input  wire [7:0]  erros,
+  input  wire [9:0]  pontos_apre,
   output wire        envio_necessario,
   output wire        tx_pronto,
   output wire        fim_bytes,
@@ -43,20 +44,24 @@ module avaliador_desempenho_fd #(
   wire        em_modo_assistido;
   wire [23:0] score_num;
   wire [8:0]  denom_score;
+  wire [10:0] max_pontos;
 
   assign em_modo_assistido = (modo_ativo == 2'd1);
   assign envio_necessario  = em_modo_assistido && fim_musica && !fim_musica_prev_reg &&
     ((acertos != 8'd0) || (erros != 8'd0));
 
   assign denom_score = {1'b0, acertos} + {1'b0, erros};
+  assign max_pontos  = {denom_score, 2'b00};
   assign score_num   = (denom_score == 9'd0) ? 24'd0 :
-    ({16'd0, acertos} * 24'd100) / {15'd0, denom_score};
+    ({14'd0, pontos_apre} * 24'd100) / {13'd0, max_pontos};
   assign score       = score_reg;
   assign fim_bytes   = (byte_idx_reg == 3'd6);
 
   always @* begin
     if (denom_score == 9'd0) begin
       score_calc = 8'd0;
+    end else if (score_num > 24'd100) begin
+      score_calc = 8'd100;
     end else begin
       score_calc = score_num[7:0];
     end

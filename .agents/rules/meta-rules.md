@@ -14,4 +14,3 @@ Descrição: >
 |---|---|
 | Ambiguous or non-trivial change, before drafting a plan | `@interview-plan` |
 | Any diff before delivery. Only ran on a separate subagent orchestration. | `@adversarial-review` |
-| If the user asks for the pin mappings. | `@pin-mapper` |

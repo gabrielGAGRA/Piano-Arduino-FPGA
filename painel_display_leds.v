@@ -12,7 +12,7 @@ module painel_display_leds (
   input  wire [5:0] sel_musica,
   input  wire [2:0] id_nota,
   input  wire       pwm_out,
-  input  wire [1:0] volume,
+  input  wire [2:0] volume,
   input  wire       mostra_vol,
   input  wire [6:0] nota_display,
   output wire [6:0] hex5_modo,
@@ -25,6 +25,57 @@ module painel_display_leds (
   output wire [6:0] led_vermelho
 );
 
+  // Decodificacao dos 5 niveis de volume (100P, 75P, 50P, 25P, 0P)
+  reg [6:0] hex5_vol;
+  reg [6:0] hex4_vol;
+  reg [6:0] hex3_vol;
+  reg [6:0] hex2_vol;
+
+  always @* begin
+    hex5_vol = 7'h79;
+    hex4_vol = 7'h40;
+    hex3_vol = 7'h40;
+    hex2_vol = 7'h0C;
+    case (volume)
+      3'd0: begin
+        hex5_vol = 7'h79;
+        hex4_vol = 7'h40;
+        hex3_vol = 7'h40;
+        hex2_vol = 7'h0C;
+      end
+      3'd1: begin
+        hex5_vol = 7'h7F;
+        hex4_vol = 7'h78;
+        hex3_vol = 7'h12;
+        hex2_vol = 7'h0C;
+      end
+      3'd2: begin
+        hex5_vol = 7'h7F;
+        hex4_vol = 7'h12;
+        hex3_vol = 7'h40;
+        hex2_vol = 7'h0C;
+      end
+      3'd3: begin
+        hex5_vol = 7'h7F;
+        hex4_vol = 7'h24;
+        hex3_vol = 7'h12;
+        hex2_vol = 7'h0C;
+      end
+      3'd4: begin
+        hex5_vol = 7'h7F;
+        hex4_vol = 7'h7F;
+        hex3_vol = 7'h40;
+        hex2_vol = 7'h0C;
+      end
+      default: begin
+        hex5_vol = 7'h79;
+        hex4_vol = 7'h40;
+        hex3_vol = 7'h40;
+        hex2_vol = 7'h0C;
+      end
+    endcase
+  end
+
   // HEX5: Modo atual ou centena do volume
   wire [6:0] hex5_normal;
   hexa7seg hexa7seg_disp5 (
@@ -32,21 +83,16 @@ module painel_display_leds (
     .display(hex5_normal)
   );
 
-  assign hex5_modo = mostra_vol ?
-    ((volume == 2'd0) ? 7'h79 : 7'h7F) :
-    hex5_normal;
+  assign hex5_modo = mostra_vol ? hex5_vol : hex5_normal;
 
-  // HEX4: Oitava atual ou dezena do volume (0, 7, 5)
+  // HEX4: Oitava atual ou dezena do volume
   wire [6:0] hex4_normal;
   hexa7seg hexa7seg_disp4 (
     .hexa({2'b00, oitava_atual}),
     .display(hex4_normal)
   );
 
-  assign hex4_oitava = mostra_vol ?
-    ((volume == 2'd0) ? 7'h40 :
-      (volume == 2'd1) ? 7'h78 : 7'h12) :
-    hex4_normal;
+  assign hex4_oitava = mostra_vol ? hex4_vol : hex4_normal;
 
   // HEX3 e HEX2: Decodificacao BCD da musica (00 a 49)
   wire [5:0] actual_idx = sel_musica;
@@ -85,10 +131,7 @@ module painel_display_leds (
     .display(hex3_normal)
   );
 
-  assign hex3_musica_dezena = mostra_vol ?
-    ((volume == 2'd0) ? 7'h40 :
-      (volume == 2'd1) ? 7'h12 : 7'h40) :
-    hex3_normal;
+  assign hex3_musica_dezena = mostra_vol ? hex3_vol : hex3_normal;
 
   // HEX2: Unidade da musica ou letra 'P' de percentual
   wire [4:0] uni_idx = (modo_ativo == 2'd0) ? 5'h1F : {1'b0, musica_uni_val};
@@ -98,7 +141,7 @@ module painel_display_leds (
     .display(hex2_normal)
   );
 
-  assign hex2_musica_unidade = mostra_vol ? 7'h0C : hex2_normal;
+  assign hex2_musica_unidade = mostra_vol ? hex2_vol : hex2_normal;
 
   // HEX1: Nota do fluxo de dados
   assign hex1_nota = nota_display;

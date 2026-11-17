@@ -168,7 +168,7 @@ struct CoSimContext
 
   // Escala temporal
   uint32_t cycles_per_uart_poll; // 1 ms equivalente
-  uint32_t cycles_per_i2s_block; // 5.805 ms equivalente (256 frames @ 44.1 kHz)
+  uint32_t cycles_per_i2s_block; // 5.333 ms equivalente (256 frames @ 48 kHz)
   uint32_t uart_poll_counter;
   uint32_t i2s_block_counter;
   uint64_t total_cycles;
@@ -184,7 +184,7 @@ struct CoSimContext
   uint8_t last_midi_data1;
   uint8_t last_midi_data2;
 
-  // Monitoramento e captura PCM (44.1 kHz 16-bit Stereo)
+  // Monitoramento e captura PCM (48 kHz 16-bit Stereo)
   std::vector<int16_t> pcm_recording;
   std::vector<int16_t> realtime_pcm_fifo;
   bool record_pcm;
@@ -357,7 +357,7 @@ static void OnI2sBlockWritten(const int16_t *samples, size_t stereo_frames)
     g_ctx.pcm_recording.insert(g_ctx.pcm_recording.end(), samples,
                                samples + total_shorts);
   }
-  if (g_ctx.realtime_pcm_fifo.size() < 44100U * 2U)
+  if (g_ctx.realtime_pcm_fifo.size() < static_cast<size_t>(kSampleRateHz) * 2U)
   {
     g_ctx.realtime_pcm_fifo.insert(g_ctx.realtime_pcm_fifo.end(), samples,
                                    samples + total_shorts);
@@ -365,7 +365,7 @@ static void OnI2sBlockWritten(const int16_t *samples, size_t stereo_frames)
 }
 
 static bool WriteWavFile(const char *filepath, const std::vector<int16_t> &pcm,
-                         uint32_t sample_rate = 44100)
+                         uint32_t sample_rate = static_cast<uint32_t>(kSampleRateHz))
 {
   FILE *f = fopen(filepath, "wb");
   if (!f)
@@ -442,7 +442,7 @@ static void StepCycles(uint64_t num_cycles)
       loop();
     }
 
-    // Task de sintese I2S do ESP32 (a cada bloco de 256 frames = 5.805 ms eq.)
+    // Task de sintese I2S do ESP32 (a cada bloco de 256 frames = 5.333 ms eq.)
     g_ctx.i2s_block_counter++;
     if (g_ctx.i2s_block_counter >= g_ctx.cycles_per_i2s_block)
     {
@@ -524,7 +524,7 @@ static void InitCoSimEngine(bool full_50mhz, const char *rom_hex_path,
   g_ctx.uart_rx.init(clk_div_uart);
 
   g_ctx.cycles_per_uart_poll = full_50mhz ? 50000U : 461U;
-  g_ctx.cycles_per_i2s_block = full_50mhz ? 290249U : 2675U;
+  g_ctx.cycles_per_i2s_block = full_50mhz ? 266667U : 2458U;
   g_ctx.uart_poll_counter = 0;
   g_ctx.i2s_block_counter = 0;
   g_ctx.total_cycles = 0;
@@ -671,7 +671,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   // --------------------------------------------------------------------------
   // Teste 1: Boot do ESP32 (setup() -> C4 Note On -> 350ms Audio -> Note Off)
   // --------------------------------------------------------------------------
-  printf("[1/9] Auditando boot do ESP32-S3 (SoundFont + autoteste C4)...\n");
+  printf("[1/12] Auditando boot do ESP32-S3 (SoundFont + autoteste C4)...\n");
   InitCoSimEngine(full_50mhz, rom_hex_path, true);
 
   check(tsf_inst != nullptr, "ESP32_BOOT", "tsf_inst nulo apos setup()");
@@ -706,9 +706,58 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   // --------------------------------------------------------------------------
   // Teste 2: Modo 0 (Livre) — Prioridade, Acordes, Legato e Fallback
   // --------------------------------------------------------------------------
-  printf("[2/9] Testando Modo 0 (Livre): prioridade de borda, acordes e legato...\n");
+  printf("[2/12] Testando Modo 0 (Livre): prioridade de borda, acordes e legato...\n");
   size_t log_base = g_ctx.midi_log.size();
   Vpiano_top *fpga = g_ctx.fpga;
+
+  auto set_mode = [&](uint8_t target_mode) {
+    for (int tries = 0; tries < 4 && fpga->debug_modo_ativo() != target_mode; ++tries)
+    {
+      PressControlBtn(fpga->btn_modo_n);
+    }
+    check(fpga->debug_modo_ativo() == target_mode, "HELPER_SET_MODE",
+          "Falha ao atingir modo alvo");
+  };
+
+  auto select_song = [&](uint8_t target_song) {
+    for (int tries = 0; tries < 43 && fpga->debug_sel_musica() != target_song; ++tries)
+    {
+      PressControlBtn(fpga->btn_musica_n);
+    }
+    check(fpga->debug_sel_musica() == target_song, "HELPER_SELECT_SONG",
+          "Falha ao selecionar musica alvo");
+  };
+
+  auto drain_tsf_voices = [&]() {
+    for (int i = 0; i < 180; ++i)
+    {
+      sim_step_audio_block();
+    }
+  };
+
+  auto trigger_vol_combo = [&]() {
+    fpga->btn_modo_n = 0;
+    StepCycles(fpga->param_debounce_controle + 10U);
+    PressControlBtn(fpga->btn_intensidade_n);
+    fpga->btn_modo_n = 1;
+    StepCycles(fpga->param_debounce_controle + 10U);
+  };
+
+  auto measure_pcm_over_blocks = [&](int blocks, int32_t &out_peak, double &out_rms) {
+    out_peak = 0;
+    double sum_sq = 0.0;
+    for (int b = 0; b < blocks; ++b)
+    {
+      StepCycles(g_ctx.cycles_per_i2s_block);
+      int32_t p = (g_ctx.last_block_peak_l > g_ctx.last_block_peak_r)
+                      ? g_ctx.last_block_peak_l
+                      : g_ctx.last_block_peak_r;
+      if (p > out_peak)
+        out_peak = p;
+      sum_sq += g_ctx.last_block_rms * g_ctx.last_block_rms;
+    }
+    out_rms = (blocks > 0) ? sqrt(sum_sq / static_cast<double>(blocks)) : 0.0;
+  };
 
   // Pressiona Do4 (tecla 0)
   fpga->gpio_keys = 0x01U;
@@ -762,7 +811,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   // --------------------------------------------------------------------------
   // Teste 3: Troca de Oitava e Sustenido com Tecla Pressionada
   // --------------------------------------------------------------------------
-  printf("[3/9] Testando mudanca de oitava e sustenido com tecla segurada...\n");
+  printf("[3/12] Testando mudanca de oitava e sustenido com tecla segurada...\n");
   fpga->gpio_keys = 0x01U; // Segura Do4 (60)
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
@@ -799,59 +848,116 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   printf("      OK: Transicoes 60 -> 61 -> 73 -> 61 -> 60 -> Off sem voz presa.\n");
 
   // --------------------------------------------------------------------------
-  // Teste 4: Combo de Volume (btn_modo + btn_intensidade)
+  // Teste 4: Combo de Volume (5 niveis: 100/75/50/25/0% + HEX + PCM Quadratico + Mute Demo)
   // --------------------------------------------------------------------------
-  printf("[4/9] Testando combo de volume (Modo + Intensidade) e displays HEX...\n");
-  // Segura btn_modo_n = 0
-  fpga->btn_modo_n = 0;
-  StepCycles(fpga->param_debounce_controle + 10U);
-  // Pulsa btn_intensidade_n (100% -> 75%)
-  PressControlBtn(fpga->btn_intensidade_n);
-  check(fpga->debug_modo_ativo() == 0U, "VOL_COMBO_MODE_STAY",
-        "Modo alterou indevidamente durante combo");
-  check(fpga->debug_mostra_vol() == 1U && fpga->debug_volume() == 1U,
-        "VOL_COMBO_75", "Volume nao mudou para 75% (estado 1)");
-  check(fpga->hex5_modo == 0x7FU && fpga->hex4_oitava == 0x78U &&
-            fpga->hex3_musica_dezena == 0x12U &&
-            fpga->hex2_musica_unidade == 0x0CU,
-        "VOL_COMBO_HEX_75P", "Displays HEX5..2 nao exibiram ' 75P'");
+  printf("[4/12] Testando 5 niveis de volume, displays HEX, PCM quadratico e mute mid-note...\n");
+  drain_tsf_voices();
 
-  // Solta btn_modo_n: NAO deve mudar para o Modo 1!
-  fpga->btn_modo_n = 1;
-  StepCycles(fpga->param_debounce_controle + 10U);
-  check(fpga->debug_modo_ativo() == 0U, "VOL_COMBO_RELEASE_NO_MODE_CHANGE",
-        "Soltar btn_modo apos combo trocou de modo indevidamente!");
+  int32_t livre_peaks[5] = {0, 0, 0, 0, 0};
+  double livre_rms[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-  // Toca nota Re4 (62) e verifica velocity de 75% ((127>>1)+(127>>2) = 94)
+  // Mede baseline 100% no Modo Livre (Re4 = 62, vel = 127)
   fpga->gpio_keys = 0x02U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
   check(g_ctx.last_midi_status == 0x90U && g_ctx.last_midi_data1 == 62U &&
-            g_ctx.last_midi_data2 == 94U,
-        "VOL_COMBO_VEL_94", "Velocity MIDI nao correspondeu a 75% (94)");
+            g_ctx.last_midi_data2 == 127U,
+        "VOL_LIVRE_VEL_127", "Velocity inicial 100% nao foi 127");
+  measure_pcm_over_blocks(8, livre_peaks[0], livre_rms[0]);
   fpga->gpio_keys = 0x00U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
+  drain_tsf_voices();
 
-  // Restaura volume para 100% (mais 2 pulsos no combo: 75% -> 50% -> 100%)
-  fpga->btn_modo_n = 0;
-  StepCycles(fpga->param_debounce_controle + 10U);
-  PressControlBtn(fpga->btn_intensidade_n); // 50%
-  check(fpga->debug_volume() == 2U, "VOL_COMBO_50", "Volume nao foi para 50%");
-  check(fpga->hex5_modo == 0x7FU && fpga->hex4_oitava == 0x12U &&
-            fpga->hex3_musica_dezena == 0x40U &&
-            fpga->hex2_musica_unidade == 0x0CU,
-        "VOL_COMBO_HEX_50P", "Displays HEX5..2 nao exibiram ' 50P'");
-  PressControlBtn(fpga->btn_intensidade_n); // 100%
-  check(fpga->debug_volume() == 0U, "VOL_COMBO_100", "Volume nao voltou a 100%");
-  check(fpga->hex5_modo == 0x79U && fpga->hex4_oitava == 0x40U &&
-            fpga->hex3_musica_dezena == 0x40U &&
-            fpga->hex2_musica_unidade == 0x0CU,
-        "VOL_COMBO_HEX_100P", "Displays HEX5..2 nao exibiram '100P'");
-  fpga->btn_modo_n = 1;
-  StepCycles(fpga->param_debounce_controle + 10U);
-  check(fpga->debug_modo_ativo() == 0U, "VOL_COMBO_FINAL_MODE",
-        "Modo alterou ao sair do combo de volume");
+  struct VolSpec
+  {
+    uint8_t state;
+    uint8_t vel;
+    uint8_t h5;
+    uint8_t h4;
+    uint8_t h3;
+    uint8_t h2;
+    const char *label;
+  };
+  static const VolSpec kVolSteps[5] = {
+      {1U, 94U, 0x7FU, 0x78U, 0x12U, 0x0CU, " 75P"},
+      {2U, 63U, 0x7FU, 0x12U, 0x40U, 0x0CU, " 50P"},
+      {3U, 31U, 0x7FU, 0x24U, 0x12U, 0x0CU, " 25P"},
+      {4U, 0U, 0x7FU, 0x7FU, 0x40U, 0x0CU, "  0P"},
+      {0U, 127U, 0x79U, 0x40U, 0x40U, 0x0CU, "100P"},
+  };
+
+  int32_t peak_100_restored = 0;
+  double rms_100_restored = 0.0;
+  for (int i = 0; i < 5; ++i)
+  {
+    const VolSpec &vs = kVolSteps[i];
+    fpga->btn_modo_n = 0;
+    StepCycles(fpga->param_debounce_controle + 10U);
+    PressControlBtn(fpga->btn_intensidade_n);
+    check(fpga->debug_modo_ativo() == 0U, "VOL_COMBO_MODE_STAY",
+          "Modo alterou indevidamente durante combo");
+    check(fpga->debug_mostra_vol() == 1U && fpga->debug_volume() == vs.state,
+          "VOL_COMBO_STATE", "Estado de volume nao avancou como esperado");
+    check(fpga->hex5_modo == vs.h5 && fpga->hex4_oitava == vs.h4 &&
+              fpga->hex3_musica_dezena == vs.h3 &&
+              fpga->hex2_musica_unidade == vs.h2,
+          "VOL_COMBO_HEX", "Displays HEX5..2 nao exibiram percentual esperado");
+    fpga->btn_modo_n = 1;
+    StepCycles(fpga->param_debounce_controle + 10U);
+    check(fpga->debug_modo_ativo() == 0U, "VOL_COMBO_RELEASE_NO_MODE_CHANGE",
+          "Soltar btn_modo apos combo trocou de modo indevidamente!");
+
+    drain_tsf_voices();
+    size_t midi_before = g_ctx.midi_log.size();
+    fpga->gpio_keys = 0x02U;
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    WaitUartAndAudioIdle(2);
+    if (vs.state == 4U)
+    {
+      check(g_ctx.midi_log.size() == midi_before, "VOL_MUTE_NO_MIDI",
+            "Volume 0% emitiu evento MIDI ao pressionar tecla");
+      check(CountSustainedVoices() == 0, "VOL_MUTE_ZERO_VOICES",
+            "Volume 0% ativou voz no TSF");
+      measure_pcm_over_blocks(4, livre_peaks[4], livre_rms[4]);
+      check(livre_peaks[4] == 0, "VOL_MUTE_ZERO_PCM",
+            "Volume 0% produziu audio PCM nao nulo");
+    }
+    else
+    {
+      check(g_ctx.last_midi_status == 0x90U && g_ctx.last_midi_data1 == 62U &&
+                g_ctx.last_midi_data2 == vs.vel,
+            "VOL_COMBO_MIDI_VEL", "Velocity MIDI divergiu do nivel de volume");
+      check(CountSustainedVoices(62) > 0, "VOL_COMBO_VOICE_ON",
+            "Voz nao sustentou no nivel de volume ativo");
+      if (vs.state == 0U)
+      {
+        measure_pcm_over_blocks(8, peak_100_restored, rms_100_restored);
+      }
+      else
+      {
+        measure_pcm_over_blocks(8, livre_peaks[vs.state], livre_rms[vs.state]);
+      }
+    }
+    fpga->gpio_keys = 0x00U;
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    WaitUartAndAudioIdle(2);
+    drain_tsf_voices();
+  }
+
+  check(livre_peaks[0] > livre_peaks[1] && livre_peaks[1] > livre_peaks[2] &&
+            livre_peaks[2] > livre_peaks[3] && livre_peaks[3] > 0,
+        "VOL_LIVRE_PEAK_SCALING",
+        "Picos PCM em Modo Livre nao decresceram monotonicamente (100>75>50>25>0)");
+  check(livre_rms[0] > livre_rms[1] && livre_rms[1] > livre_rms[2] &&
+            livre_rms[2] > livre_rms[3] && livre_rms[3] > 0.0,
+        "VOL_LIVRE_RMS_SCALING",
+        "RMS PCM em Modo Livre nao decresceu monotonicamente (100>75>50>25>0)");
+  check(livre_rms[2] < 0.45 * livre_rms[0] && livre_rms[3] < 0.20 * livre_rms[0],
+        "VOL_LIVRE_QUADRATIC_CURVE",
+        "Atenuacao quadratica (50%/25% vs 100%) fora da faixa esperada");
+  check(peak_100_restored > (livre_peaks[0] * 7) / 10, "VOL_LIVRE_100_RESTORED",
+        "Retorno de 0% para 100% nao restaurou amplitude plena");
 
   // Avanca 1.0 s (125 * CiclosTick8ms) para verificar fim do timer mostra_vol
   StepCycles(125ULL * fpga->param_ciclos_tick_8ms + 20U);
@@ -860,12 +966,77 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
             fpga->hex2_musica_unidade == 0x7FU,
         "VOL_COMBO_TIMER_EXPIRE",
         "Displays HEX5..2 nao retornaram ao normal apos 1s de mostra_vol");
-  printf("      OK: Combo 100%% -> 75%% (vel 94) -> 50%% -> 100%% e timeout 1s validados.\n");
+
+  // Testa escala quadratica no Modo Demo (Musica 6: vel_rom=100, dur=40) e mute mid-note
+  select_song(6U);
+  auto run_demo_first_note_pcm = [&](uint8_t exp_vel, int32_t &out_pk, double &out_rms) {
+    set_mode(3U);
+    drain_tsf_voices();
+    fpga->gpio_keys = 0x01U;
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    WaitUartAndAudioIdle(2);
+    check(g_ctx.last_midi_status == 0x90U && g_ctx.last_midi_data1 == 60U &&
+              g_ctx.last_midi_data2 == exp_vel,
+          "VOL_DEMO_VEL", "Velocity MIDI no Demo divergiu do nivel de volume");
+    check(CountSustainedVoices(60) > 0, "VOL_DEMO_VOICE_ON",
+          "Nota da Demo nao ativou no TSF");
+    measure_pcm_over_blocks(6, out_pk, out_rms);
+  };
+
+  int32_t demo_pk_100 = 0, demo_pk_50 = 0, demo_pk_25 = 0;
+  double demo_rms_100 = 0.0, demo_rms_50 = 0.0, demo_rms_25 = 0.0;
+  run_demo_first_note_pcm(100U, demo_pk_100, demo_rms_100);
+  set_mode(0U);
+  WaitUartAndAudioIdle(2);
+  drain_tsf_voices();
+
+  trigger_vol_combo(); // 75%
+  trigger_vol_combo(); // 50%
+  run_demo_first_note_pcm(50U, demo_pk_50, demo_rms_50);
+  set_mode(0U);
+  WaitUartAndAudioIdle(2);
+  drain_tsf_voices();
+
+  trigger_vol_combo(); // 25%
+  run_demo_first_note_pcm(25U, demo_pk_25, demo_rms_25);
+
+  check(demo_pk_100 > demo_pk_50 && demo_pk_50 > demo_pk_25 && demo_pk_25 > 0,
+        "VOL_DEMO_PEAK_SCALING",
+        "Picos PCM no Demo nao decresceram (100>50>25)");
+  check(demo_rms_100 > demo_rms_50 && demo_rms_50 > demo_rms_25 &&
+            demo_rms_25 < 0.25 * demo_rms_100,
+        "VOL_DEMO_QUADRATIC_SCALING",
+        "RMS PCM no Demo nao seguiu escala quadratica esperada");
+
+  // Com a nota C4 ainda em execucao no Modo Demo (dur=40 ticks), aplica mute (25% -> 0%)
+  check(CountSustainedVoices(60) > 0, "VOL_DEMO_MUTE_PRE_ACTIVE",
+        "Nota do Demo encerrou antes do mute mid-note");
+  trigger_vol_combo(); // 25% -> 0%
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_modo_ativo() == 3U && fpga->debug_volume() == 4U,
+        "VOL_DEMO_MUTE_STATE", "Combo para 0% no meio da Demo nao manteve Modo 3");
+  check(g_ctx.last_midi_status == 0x80U && g_ctx.last_midi_data1 == 60U,
+        "VOL_DEMO_MUTE_IMMEDIATE_OFF",
+        "Mute (0%) no meio da nota Demo nao enviou Note Off imediato!");
+  check(CountSustainedVoices() == 0, "VOL_DEMO_MUTE_ZERO_VOICES",
+        "Voz permaneceu sustentada apos mute mid-note no Demo");
+
+  // Restaura Modo 0, Musica 0 e Volume 100%
+  set_mode(0U);
+  trigger_vol_combo(); // 0% -> 100%
+  select_song(0U);
+  StepCycles(125ULL * fpga->param_ciclos_tick_8ms + 20U);
+  WaitUartAndAudioIdle(2);
+  drain_tsf_voices();
+  printf("      OK: 5 niveis (peaks %d/%d/%d/%d/0), escala quadratica e mute mid-note validados.\n",
+         livre_peaks[0], livre_peaks[1], livre_peaks[2], livre_peaks[3]);
 
   // --------------------------------------------------------------------------
   // Teste 5: Modo 1 (Aprendizado) — Trava Anti-Pipoco e Metronomo
   // --------------------------------------------------------------------------
-  printf("[5/9] Testando Modo 1 (Aprendizado): trava anti-pipoco e avanco ROM...\n");
+  printf("[5/12] Testando Modo 1 (Aprendizado): trava anti-pipoco e avanco ROM...\n");
   // Seleciona musica 6 (Do_Re_Mi_Fa: C4=60, D4=62, E4=64, F4=65)
   for (int m = 0; m < 6; ++m)
   {
@@ -937,107 +1108,398 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   printf("      OK: Modo Aprendizado e trava anti-pipoco validados com 0 re-ataques.\n");
 
   // --------------------------------------------------------------------------
-  // Teste 6: Modo 2 (Gravacao RAM) + Modo 3 (Playback RAM e Fronteira 1023)
+  // Teste 6: Modo 2 (Gravacao RAM): Precisao Temporal (Duracao+Pausa), Playback e M10K
   // --------------------------------------------------------------------------
-  printf("[6/9] Testando Modo 2 (Gravacao RAM), Playback slot 42 e fronteira M10K...\n");
-  PressControlBtn(fpga->btn_modo_n); // Modo 1 -> Modo 2 (Gravacao)
-  StepCycles(10);
+  printf("[6/12] Testando Modo 2 (Gravacao RAM): duracao, pausa pos-nota, playback e M10K...\n");
+  const uint32_t db_key = fpga->param_debounce_tecla;
+  const uint32_t tick_8ms = fpga->param_ciclos_tick_8ms;
+
+  auto decode_ram_word = [](uint32_t word, uint8_t &nota, uint8_t &vel,
+                            uint8_t &dur, uint8_t &pausa) {
+    nota = static_cast<uint8_t>(word & 0x7FU);
+    vel = static_cast<uint8_t>((word >> 7) & 0x7FU);
+    dur = static_cast<uint8_t>((word >> 14) & 0xFFU);
+    pausa = static_cast<uint8_t>((word >> 22) & 0xFFU);
+  };
+
+  set_mode(2U); // Modo 1 -> Modo 2 (Gravacao)
   check(fpga->debug_modo_ativo() == 2U, "GRAV_ENTER", "Nao entrou no Modo 2");
   check(fpga->debug_sel_musica() == 42U, "GRAV_SEL_42",
         "Modo 2 nao selecionou slot 42");
 
-  // Grava nota 1: Do4 (60) por 3 ticks de 8ms
+  // Espera 8 ticks ANTES da 1a nota: NAO deve ser gravado como pausa
+  StepCycles(8ULL * tick_8ms);
+
+  // Grava 3 notas com duracoes (4, 8, 3) e pausas inter-notas (5, 2) distintas
+  // Nota 0: C4 (60), dur=4, pausa=5
   fpga->gpio_keys = 0x01U;
-  StepCycles(fpga->param_debounce_tecla + 3U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
+  StepCycles(3ULL * tick_8ms + tick_8ms / 2U);
   fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 2U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
+  StepCycles(5ULL * tick_8ms + tick_8ms / 2U);
 
-  // Grava nota 2: Mi4 (64) por 3 ticks de 8ms
+  // Nota 1: E4 (64), dur=8, pausa=2
   fpga->gpio_keys = 0x04U;
-  StepCycles(fpga->param_debounce_tecla + 3U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
+  StepCycles(7ULL * tick_8ms + tick_8ms / 2U);
   fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 2U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
-  check(fpga->debug_endereco_ram() == 2U, "GRAV_TWO_NOTES",
-        "Endereco RAM nao avancou para 2 apos gravar 2 notas");
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
 
-  // Testa tambem escrita na fronteira superior da RAM M10K (addr 1022 -> 1023)
+  // Nota 2: G4 (67), dur=3; depois espera 10 ticks antes de sair do Modo 2
+  fpga->gpio_keys = 0x10U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(10ULL * tick_8ms + db_key + 20U);
+  WaitUartAndAudioIdle(2);
+
+  check(fpga->debug_endereco_ram() == 3U && fpga->debug_grav_tem_dados() == 1U &&
+            fpga->debug_ultimo_end_gravado() == 2U,
+        "GRAV_THREE_NOTES_ADDR",
+        "Endereco ou ultimo_end_gravado incorreto apos gravar 3 notas");
+
+  {
+    uint8_t n0, v0, d0, p0, n1, v1, d1, p1, n2, v2, d2, p2;
+    decode_ram_word(fpga->debug_read_ram(0U), n0, v0, d0, p0);
+    decode_ram_word(fpga->debug_read_ram(1U), n1, v1, d1, p1);
+    decode_ram_word(fpga->debug_read_ram(2U), n2, v2, d2, p2);
+    check(n0 == 60U && v0 == 127U && d0 == 4U && p0 == 5U, "GRAV_WORD0_TIMING",
+          "Palavra 0 RAM divergiu (esperado C4, vel=127, dur=4, pausa=5)");
+    check(n1 == 64U && v1 == 127U && d1 == 8U && p1 == 2U, "GRAV_WORD1_TIMING",
+          "Palavra 1 RAM divergiu (esperado E4, vel=127, dur=8, pausa=2)");
+    check(n2 == 67U && v2 == 127U && d2 == 3U && p2 == 0U, "GRAV_WORD2_TIMING",
+          "Palavra 2 RAM divergiu (esperado G4, vel=127, dur=3, pausa=0)");
+  }
+
+  // Reproduz no Modo 3 (Demo slot 42) e mede duracoes e pausas reais em ciclos MIDI
+  set_mode(3U);
+  select_song(42U);
+  WaitUartAndAudioIdle(2);
+  size_t log_before_timing_demo = g_ctx.midi_log.size();
+  fpga->gpio_keys = 0x01U;
+  StepCycles(db_key + 10U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(27ULL * tick_8ms);
+  WaitUartAndAudioIdle(3);
+
+  {
+    size_t count = g_ctx.midi_log.size() - log_before_timing_demo;
+    check(count == 6U, "DEMO_TIMING_EVENT_COUNT",
+          "Playback de 3 notas deveria gerar exatamente 6 eventos MIDI");
+    if (count >= 6U)
+    {
+      const MidiLogEntry *ev = &g_ctx.midi_log[log_before_timing_demo];
+      check(ev[0].status == 0x90U && ev[0].data1 == 60U &&
+                ev[1].status == 0x80U && ev[1].data1 == 60U &&
+                ev[2].status == 0x90U && ev[2].data1 == 64U &&
+                ev[3].status == 0x80U && ev[3].data1 == 64U &&
+                ev[4].status == 0x90U && ev[4].data1 == 67U &&
+                ev[5].status == 0x80U && ev[5].data1 == 67U,
+            "DEMO_TIMING_NOTE_SEQ",
+            "Sequencia MIDI no playback da gravacao temporizada incorreta");
+      double dur0_t = static_cast<double>(ev[1].cycle - ev[0].cycle) / tick_8ms;
+      double gap0_t = static_cast<double>(ev[2].cycle - ev[1].cycle) / tick_8ms;
+      double dur1_t = static_cast<double>(ev[3].cycle - ev[2].cycle) / tick_8ms;
+      double gap1_t = static_cast<double>(ev[4].cycle - ev[3].cycle) / tick_8ms;
+      double dur2_t = static_cast<double>(ev[5].cycle - ev[4].cycle) / tick_8ms;
+      check(dur0_t >= 3.4 && dur0_t <= 4.6 && gap0_t >= 4.4 && gap0_t <= 5.6 &&
+                dur1_t >= 7.4 && dur1_t <= 8.6 && gap1_t >= 1.4 && gap1_t <= 2.6 &&
+                dur2_t >= 2.4 && dur2_t <= 3.6,
+            "DEMO_TIMING_REAL_MEASURED",
+            "Duracoes ou pausas medidas no playback Demo diferem do gravado");
+    }
+  }
+  check(CountSustainedVoices() == 0, "DEMO_RAM_CLEAN_END",
+        "Voz ficou presa apos playback da gravacao temporizada");
+
+  // Testa tambem escrita na fronteira superior da RAM M10K (addr 1022 -> 1023) e trava em 1023
+  set_mode(2U);
   fpga->debug_set_endereco_ram(1022U);
   fpga->gpio_keys = 0x10U; // Sol4 (67) no endereco 1022
-  StepCycles(fpga->param_debounce_tecla + 2U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
+  StepCycles(2ULL * tick_8ms);
   fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 1U * fpga->param_ciclos_tick_8ms + 20U);
+  StepCycles(db_key + 20U);
   WaitUartAndAudioIdle(2);
   check(fpga->debug_endereco_ram() == 1023U, "GRAV_UPPER_BOUND_1023",
         "Endereco RAM nao avancou para o limite superior 1023");
   check((fpga->debug_read_ram(1022U) & 0x7FU) == 67U, "GRAV_RAM_WORD_1022",
         "Palavra na posicao 1022 da RAM M10K nao armazenou Sol4 (67)");
-  // Restaura ultimo_end_gravado para 1 regravando rapidamente C4->E4 para o playback
-  PressControlBtn(fpga->btn_modo_n); // Modo 2 -> Modo 3
-  PressControlBtn(fpga->btn_modo_n); // Modo 3 -> Modo 0
-  PressControlBtn(fpga->btn_modo_n); // Modo 0 -> Modo 1
-  PressControlBtn(fpga->btn_modo_n); // Modo 1 -> Modo 2 (zera gravacao)
-  fpga->gpio_keys = 0x01U;
-  StepCycles(fpga->param_debounce_tecla + 3U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
-  fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 2U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
-  fpga->gpio_keys = 0x04U;
-  StepCycles(fpga->param_debounce_tecla + 3U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
-  fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 2U * fpga->param_ciclos_tick_8ms + 20U);
-  WaitUartAndAudioIdle(2);
 
-  // Seleciona musica 42 para o Modo 3 (estavamos na musica 6 -> +36 pulsos = 42)
-  PressControlBtn(fpga->btn_modo_n); // Modo 2 -> Modo 3 (Demo)
-  for (int m = 0; m < 36; ++m)
+  // Com endereco ja em 1023 (capacidade maxima), pressionar A4 (0x20) nao deve sobrescrever nem dar wrap-around
+  fpga->gpio_keys = 0x20U;
+  StepCycles(2ULL * tick_8ms);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(db_key + 20U);
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_endereco_ram() == 1023U, "GRAV_CAP_1023_ADDR",
+        "Endereco RAM saiu de 1023 ao tentar gravar com RAM cheia");
+  check(fpga->debug_ultimo_end_gravado() == 1022U, "GRAV_CAP_1023_LAST_WRITTEN",
+        "ultimo_end_gravado alterou indevidamente com RAM cheia em 1023");
+  check((fpga->debug_read_ram(0U) & 0x7FU) == 60U, "GRAV_CAP_1023_NO_WRAP_OVERWRITE",
+        "Endereco 0 foi sobrescrito indevidamente por wrap-around em 1023");
+
+  // Verifica que playback Demo partindo de 1022 reproduz Sol4 (67) e encerra ao atingir 1023
+  set_mode(3U);
+  select_song(42U);
+  WaitUartAndAudioIdle(2);
   {
-    PressControlBtn(fpga->btn_musica_n);
+    size_t log_before_cap_demo = g_ctx.midi_log.size();
+    fpga->gpio_keys = 0x01U;
+    for (uint32_t c = 0; c < db_key + 20U && fpga->debug_fsm_state() != 13U; ++c)
+    {
+      StepCycles(1);
+    }
+    check(fpga->debug_fsm_state() == 13U, "DEMO_CAP_1022_START",
+          "Demo nao iniciou estado kDemoTocaNota");
+    fpga->debug_set_endereco_ram(1022U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles(db_key + 8ULL * tick_8ms);
+    WaitUartAndAudioIdle(2);
+    size_t cap_cnt = g_ctx.midi_log.size() - log_before_cap_demo;
+    check(cap_cnt == 2U &&
+              g_ctx.midi_log[log_before_cap_demo].status == 0x90U &&
+              g_ctx.midi_log[log_before_cap_demo].data1 == 67U &&
+              g_ctx.midi_log[log_before_cap_demo + 1U].status == 0x80U &&
+              g_ctx.midi_log[log_before_cap_demo + 1U].data1 == 67U,
+          "DEMO_CAP_1022_PLAY_SOL4",
+          "Playback Demo a partir de 1022 nao reproduziu apenas Sol4 (67)");
+    check(fpga->debug_fsm_state() == 15U && fpga->debug_endereco_ram() == 0U &&
+              CountSustainedVoices() == 0,
+          "DEMO_CAP_1022_CLEAN_STOP",
+          "Playback Demo partindo de 1022 nao encerrou limpo em kIniciaDemo");
   }
-  check(fpga->debug_modo_ativo() == 3U && fpga->debug_sel_musica() == 42U,
-        "DEMO_RAM_READY", "Modo 3 na musica 42 nao configurado");
+  printf("      OK: Gravacao (dur=4/8/3, pausa=5/2), playback medido, trava 1023 e Demo 1022 OK.\n");
 
-  size_t log_before_ram_demo = g_ctx.midi_log.size();
-  // Dispara playback com pulso em tecla
+  // --------------------------------------------------------------------------
+  // Teste 7: Polifonia / Legato Overlap na Gravacao (Modo 2) e Demo (Modo 3)
+  // --------------------------------------------------------------------------
+  printf("[7/12] Testando Polifonia / Legato Overlap na gravacao (C4->E4->G4->E4->C4)...\n");
+  set_mode(0U);
+  set_mode(2U); // Reinicia endereco de gravacao para 0
+  // C4 (3 ticks) -> +E4 (3 ticks) -> +G4 (3 ticks) -> solta G4 (fallback E4, 3 ticks)
+  // -> solta E4 (fallback C4, 3 ticks) -> solta C4
   fpga->gpio_keys = 0x01U;
-  StepCycles(fpga->param_debounce_tecla + 10U);
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x05U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x15U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x05U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x01U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
   fpga->gpio_keys = 0x00U;
-  StepCycles(fpga->param_debounce_tecla + 15U * fpga->param_ciclos_tick_8ms);
+  StepCycles(db_key + 20U);
+  WaitUartAndAudioIdle(2);
+
+  check(fpga->debug_ultimo_end_gravado() == 4U && fpga->debug_endereco_ram() == 5U,
+        "GRAV_LEGATO_COUNT_5",
+        "Sobreposicao legato de 5 eventos nao gravou 5 posicoes na RAM");
+  {
+    static const uint8_t kExpLegato[5] = {60U, 64U, 67U, 64U, 60U};
+    for (int idx = 0; idx < 5; ++idx)
+    {
+      uint8_t n, v, d, p;
+      decode_ram_word(fpga->debug_read_ram(static_cast<uint16_t>(idx)), n, v, d, p);
+      check(n == kExpLegato[idx] && v == 127U && d == 3U && p == 0U,
+            "GRAV_LEGATO_RAM_WORD",
+            "Nota legato gravada na RAM divergiu de (nota, vel=127, dur=3, pausa=0)");
+    }
+  }
+
+  // Reproduz no Modo 3 e confirma todas as 5 notas sequenciais sem sobreposicao
+  set_mode(3U);
+  select_song(42U);
+  WaitUartAndAudioIdle(2);
+  size_t log_before_legato = g_ctx.midi_log.size();
+  uint32_t overlaps_before_legato = g_ctx.overlap_violations;
+  fpga->gpio_keys = 0x01U;
+  StepCycles(db_key + 10U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(20ULL * tick_8ms);
   WaitUartAndAudioIdle(3);
 
-  bool saw_c4_ram = false;
-  bool saw_e4_ram = false;
-  for (size_t idx = log_before_ram_demo; idx < g_ctx.midi_log.size(); ++idx)
   {
-    if (g_ctx.midi_log[idx].status == 0x90U && g_ctx.midi_log[idx].data1 == 60U)
-      saw_c4_ram = true;
-    if (g_ctx.midi_log[idx].status == 0x90U && g_ctx.midi_log[idx].data1 == 64U)
-      saw_e4_ram = true;
+    static const uint8_t kExpLegato[5] = {60U, 64U, 67U, 64U, 60U};
+    size_t count = g_ctx.midi_log.size() - log_before_legato;
+    check(count == 10U, "DEMO_LEGATO_EVENT_COUNT",
+          "Playback legato deveria gerar 10 eventos MIDI (5 On + 5 Off)");
+    if (count >= 10U)
+    {
+      for (int idx = 0; idx < 5; ++idx)
+      {
+        const MidiLogEntry &e_on = g_ctx.midi_log[log_before_legato + idx * 2];
+        const MidiLogEntry &e_off = g_ctx.midi_log[log_before_legato + idx * 2 + 1];
+        check(e_on.status == 0x90U && e_on.data1 == kExpLegato[idx] &&
+                  e_off.status == 0x80U && e_off.data1 == kExpLegato[idx],
+              "DEMO_LEGATO_PLAYBACK_SEQ",
+              "Sequencia MIDI no playback legato divergiu de C4->E4->G4->E4->C4");
+      }
+    }
   }
-  check(saw_c4_ram && saw_e4_ram, "DEMO_RAM_PLAYBACK",
-        "Playback da RAM no Modo 3 nao reproduziu as notas gravadas (60 e 64)");
-  check(CountSustainedVoices() == 0, "DEMO_RAM_CLEAN_END",
-        "Voz ficou presa apos fim do playback da RAM");
-  printf("      OK: Gravacao M10K (incluindo fronteira 1022->1023) e playback validados.\n");
+  check(g_ctx.overlap_violations == overlaps_before_legato &&
+            CountSustainedVoices() == 0,
+        "DEMO_LEGATO_NO_OVERLAP",
+        "Playback legato gerou violacao de sobreposicao ou deixou voz presa");
+  printf("      OK: 5 notas legato (60,64,67,64,60) gravadas e reproduzidas sem overlap.\n");
 
   // --------------------------------------------------------------------------
-  // Teste 7: Interrupcao Abrupta no Meio de Nota Ativa (Modo 3 Demo e Modo 1 Aprendizado)
+  // Teste 8: Persistencia da RAM M10K entre Modos, Aprendizado e Sobrescrita
   // --------------------------------------------------------------------------
-  printf("[7/9] Testando interrupcao abrupta com nota ativa (Demo e Aprendizado)...\n");
-  // Da musica 42, 5 pulsos em btn_musica -> 42->0->1->2->3->4 (Clair de Lune)
-  for (int m = 0; m < 5; ++m)
+  printf("[8/12] Testando persistencia da RAM entre modos (1->2->3->0->1) e sobrescrita...\n");
+  set_mode(2U);
+  fpga->gpio_keys = 0x01U; // C4 (60)
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x04U; // E4 (64)
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(db_key + 20U);
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_grav_tem_dados() == 1U && fpga->debug_ultimo_end_gravado() == 1U,
+        "PERSIST_RECORDED_2", "Gravacao de 2 notas nao atualizou ultimo_end_gravado=1");
+
+  // Toca a musica gravada no Modo 1 (Aprendizado) ate o fim e auto-reinicio
+  set_mode(1U);
+  select_song(42U);
+  auto play_2note_ram_in_modo1 = [&](const char *tag) {
+    uint32_t sc_before = fpga->debug_score_count();
+    check(fpga->debug_endereco_ram() == 0U && fpga->hex1_nota == 0x46U, tag,
+          "Modo 1 nao iniciou na nota 0 (C4)");
+    fpga->gpio_keys = 0x01U;
+    StepCycles(db_key + 20U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles(db_key + 20U);
+    check(fpga->debug_endereco_ram() == 1U && fpga->hex1_nota == 0x06U, tag,
+          "Modo 1 nao avancou para nota 1 (E4)");
+    fpga->gpio_keys = 0x04U;
+    StepCycles(db_key + 20U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles(db_key + 30U);
+    WaitUartAndAudioIdle(2);
+    check(fpga->debug_endereco_ram() == 0U && fpga->hex1_nota == 0x46U &&
+              fpga->debug_score_count() == sc_before + 1U,
+          tag, "Modo 1 nao reiniciou automaticamente para addr 0 apos fim da RAM");
+  };
+  play_2note_ram_in_modo1("PERSIST_MODO1_PASS1");
+
+  // Cicla por TODOS os modos (1 -> 2 -> 3 -> 0 -> 1) SEM pressionar teclas no Modo 2
+  PressControlBtn(fpga->btn_modo_n); // 1 -> 2
+  check(fpga->debug_modo_ativo() == 2U && fpga->debug_grav_tem_dados() == 1U &&
+            fpga->debug_ultimo_end_gravado() == 1U,
+        "PERSIST_ENTER_MODO2_NO_WIPE",
+        "Entrar no Modo 2 sem pressionar teclas apagou dados gravados!");
+  PressControlBtn(fpga->btn_modo_n); // 2 -> 3
+  PressControlBtn(fpga->btn_modo_n); // 3 -> 0
+  PressControlBtn(fpga->btn_modo_n); // 0 -> 1
+  check(fpga->debug_modo_ativo() == 1U && fpga->debug_grav_tem_dados() == 1U &&
+            fpga->debug_ultimo_end_gravado() == 1U,
+        "PERSIST_FULL_CYCLE_INTACT",
+        "Dados da RAM nao persistiram apos ciclo completo 1->2->3->0->1");
+
+  // Confirma que Modo 1 e Modo 3 continuam reproduzindo a gravacao de 2 notas intacta
+  play_2note_ram_in_modo1("PERSIST_MODO1_PASS2");
+
+  set_mode(3U);
+  check(fpga->debug_sel_musica() == 42U, "PERSIST_MODO3_SEL42",
+        "Slot 42 nao permaneceu selecionado");
+  WaitUartAndAudioIdle(2);
+  size_t log_persist_demo = g_ctx.midi_log.size();
+  fpga->gpio_keys = 0x01U;
+  StepCycles(db_key + 10U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(14ULL * tick_8ms);
+  WaitUartAndAudioIdle(2);
+  check((g_ctx.midi_log.size() - log_persist_demo) == 4U &&
+            g_ctx.midi_log[log_persist_demo].data1 == 60U &&
+            g_ctx.midi_log[log_persist_demo + 2].data1 == 64U,
+        "PERSIST_MODO3_INTACT",
+        "Demo slot 42 nao reproduziu as 2 notas intactas apos passar pelo Modo 2");
+
+  // Agora entra no Modo 2 e grava 1 nota (A4 = 69) para validar sobrescrita intencional
+  set_mode(2U);
+  fpga->gpio_keys = 0x20U; // A4 (69)
+  StepCycles(2ULL * tick_8ms + tick_8ms / 2U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(db_key + 20U);
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_grav_tem_dados() == 1U && fpga->debug_ultimo_end_gravado() == 0U &&
+            (fpga->debug_read_ram(0U) & 0x7FU) == 69U,
+        "PERSIST_INTENTIONAL_OVERWRITE",
+        "Gravar nova nota no Modo 2 nao sobrescreveu ultimo_end_gravado=0 com A4(69)");
+  set_mode(3U);
+  WaitUartAndAudioIdle(2);
+  size_t log_overwrite_demo = g_ctx.midi_log.size();
+  fpga->gpio_keys = 0x01U;
+  StepCycles(db_key + 10U);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(8ULL * tick_8ms);
+  WaitUartAndAudioIdle(2);
+  check((g_ctx.midi_log.size() - log_overwrite_demo) == 2U &&
+            g_ctx.midi_log[log_overwrite_demo].status == 0x90U &&
+            g_ctx.midi_log[log_overwrite_demo].data1 == 69U,
+        "PERSIST_OVERWRITE_PLAYBACK",
+        "Playback apos sobrescrita nao tocou estritamente 1 nota A4(69)");
+  printf("      OK: Persistencia intacta atraves de 1->2->3->0->1 e sobrescrita A4(69) OK.\n");
+
+  // --------------------------------------------------------------------------
+  // Teste 9: Modo 1 (Aprendizado) — Pontuacao de Ritmo + Auto-Reinicio
+  // --------------------------------------------------------------------------
+  printf("[9/12] Testando avaliacao de ritmo no Modo 1 (taps 53%% vs exato 100%%) e auto-reinicio...\n");
+  set_mode(1U);
+  select_song(6U); // Do_Re_Mi_Fa (7 notas: dur=40, pausa=5)
+  check(fpga->debug_endereco_ram() == 0U && fpga->debug_acertos() == 0U &&
+            fpga->debug_erros() == 0U && fpga->debug_pontos_apre() == 0U,
+        "RHYTHM_INIT_CLEAN",
+        "Contadores do Modo 1 nao iniciaram zerados na musica 6");
+
+  // Passada 1: taps curtos (1-2 ticks) com gap 0 ticks entre notas
+  uint32_t scores_before_p1 = fpga->debug_score_count();
+  for (int k = 0; k < 7; ++k)
   {
-    PressControlBtn(fpga->btn_musica_n);
+    fpga->gpio_keys = static_cast<uint8_t>(1U << k);
+    StepCycles(db_key + 20U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles((k < 6) ? 10U : (db_key + 30U));
   }
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_score_count() == scores_before_p1 + 1U, "RHYTHM_P1_SCORE_LATCHED",
+        "Score da Passada 1 nao foi disparado ao fim da musica");
+  check(fpga->debug_last_score() == 53U, "RHYTHM_P1_LOW_SCORE",
+        "Taps curtos e sem pausa deveriam resultar em score 53% (0 erros)");
+  check(fpga->debug_endereco_ram() == 0U && fpga->debug_acertos() == 0U &&
+            fpga->debug_erros() == 0U && fpga->debug_pontos_apre() == 0U &&
+            fpga->hex1_nota == 0x46U,
+        "RHYTHM_P1_AUTORESTART",
+        "Modo 1 nao reiniciou endereco e contadores apos Passada 1");
+
+  // Passada 2 (imediata apos auto-reinicio): segura 40 ticks e pausa 5 ticks
+  uint32_t scores_before_p2 = fpga->debug_score_count();
+  for (int k = 0; k < 7; ++k)
+  {
+    fpga->gpio_keys = static_cast<uint8_t>(1U << k);
+    StepCycles(39ULL * tick_8ms + tick_8ms / 2U);
+    fpga->gpio_keys = 0x00U;
+    StepCycles((k < 6) ? (5ULL * tick_8ms + tick_8ms / 2U) : (db_key + 30U));
+  }
+  WaitUartAndAudioIdle(2);
+  check(fpga->debug_score_count() == scores_before_p2 + 1U, "RHYTHM_P2_SCORE_LATCHED",
+        "Score da Passada 2 nao foi disparado ao fim da musica");
+  check(fpga->debug_last_score() == 100U, "RHYTHM_P2_100_SCORE",
+        "Execucao no ritmo exato (dur=40, pausa=5) deveria resultar em 100%");
+  check(fpga->debug_endereco_ram() == 0U && fpga->debug_acertos() == 0U &&
+            fpga->debug_erros() == 0U && fpga->debug_pontos_apre() == 0U,
+        "RHYTHM_P2_AUTORESTART",
+        "Modo 1 nao reiniciou endereco e contadores apos Passada 2");
+  printf("      OK: Passada 1 = 53%%, Passada 2 = 100%%, auto-reinicio e contadores OK.\n");
+
+  // --------------------------------------------------------------------------
+  // Teste 10: Interrupcao Abrupta no Meio de Nota Ativa (Modo 3 Demo e Modo 1 Aprendizado)
+  // --------------------------------------------------------------------------
+  printf("[10/12] Testando interrupcao abrupta com nota ativa (Demo e Aprendizado)...\n");
+  set_mode(3U);
+  select_song(4U); // Clair de Lune (primeira nota = 67 com duracao longa)
   check(fpga->debug_sel_musica() == 4U, "DEMO_SONG_4", "Musica 4 nao selecionada");
 
-  // Inicia Demo (Clair de Lune: primeira nota = 67 com duracao longa)
+  // Inicia Demo (Clair de Lune)
   fpga->gpio_keys = 0x01U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   fpga->gpio_keys = 0x00U;
@@ -1053,7 +1515,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
         "Trocar de musica com nota ativa na Demo deixou voz presa no ESP32!");
 
   // Inicia novamente na musica 6 (Do_Re_Mi_Fa) e interrompe trocando de MODO!
-  PressControlBtn(fpga->btn_musica_n); // Musica 6
+  select_song(6U);
   fpga->gpio_keys = 0x01U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   fpga->gpio_keys = 0x00U;
@@ -1071,21 +1533,20 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
         "Trocar de modo com nota ativa na Demo deixou voz presa no ESP32!");
 
   // Agora testa interrupcao no Modo 1 (Aprendizado) com tecla pressionada:
-  // Entra no Modo 1 (musica 6), acerta e segura Do4 (60), depois interrompe
-  // trocando de musica e de modo!
+  // Entra no Modo 1 (musica 6), acerta e segura Do4 (60), depois interrompe trocando de modo!
   PressControlBtn(fpga->btn_modo_n); // Modo 0 -> Modo 1 (Aprendizado)
   fpga->gpio_keys = 0x01U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
   check(CountSustainedVoices(60) > 0, "APRE_INTERRUPT_NOTE_ACTIVE",
         "Nota 60 nao estava ativa no Modo 1 antes da interrupcao");
-  // Troca de modo (Modo 1 -> Modo 2 -> Modo 3 -> Modo 0) e solta tecla
   PressControlBtn(fpga->btn_modo_n); // Modo 1 -> Modo 2
   fpga->gpio_keys = 0x00U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
   PressControlBtn(fpga->btn_modo_n); // Modo 2 -> Modo 3
   PressControlBtn(fpga->btn_modo_n); // Modo 3 -> Modo 0
+  select_song(0U);
   WaitUartAndAudioIdle(2);
   check(fpga->debug_modo_ativo() == 0U && CountSustainedVoices() == 0,
         "APRE_INTERRUPT_CLEAN",
@@ -1093,9 +1554,10 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   printf("      OK: Interrupcoes na Demo (Modo 3) e Aprendizado (Modo 1) limpas.\n");
 
   // --------------------------------------------------------------------------
-  // Teste 8: Robustez UART MIDI e Estresse de Polifonia (Voice Stealing >12 Vozes)
+  // Teste 11: Robustez UART MIDI e Estresse de Polifonia (Voice Stealing >7 Vozes Mono)
   // --------------------------------------------------------------------------
-  printf("[8/9] Testando ressincronismo UART MIDI e voice-stealing (>12 vozes TSF)...\n");
+  printf("[11/12] Testando ressincronismo UART MIDI e voice-stealing (>%d vozes mono TSF)...\n",
+         kMaxPolyphonyVoices);
   // Injeta bytes orfaos sem status (quando status_byte ja existe) e frame truncado
   Serial1.pushRxByte(0x90U); // Status Note On
   Serial1.pushRxByte(0x3CU); // Data 1 parcial (sem velocity!)
@@ -1119,8 +1581,9 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   check(CountSustainedVoices() == 0, "UART_RESYNC_NOTE_OFF_VEL0",
         "Note On com velocity 0 nao desligou a voz de La4 (69)");
 
-  // Estresse de polifonia: toca rapidamente 8 notas pela FPGA (16 vozes estereo > limite de 12)
-  // para forcar o algoritmo de voice-stealing do TinySoundFont (kMaxPolyphonyVoices = 12)
+  // Estresse de polifonia: toca rapidamente 9 notas distintas pela FPGA (> limite de 7 vozes mono)
+  // para forcar o algoritmo de voice-stealing do TinySoundFont (kMaxPolyphonyVoices = 7)
+  g_ctx.max_active_voices_seen = 0;
   static const uint8_t kTrillKeys[7] = {0x01U, 0x02U, 0x04U, 0x08U,
                                         0x10U, 0x20U, 0x40U};
   for (int k = 0; k < 7; ++k)
@@ -1132,9 +1595,23 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     StepCycles(fpga->param_debounce_tecla + 10U);
     WaitUartAndAudioIdle(1);
   }
+  fpga->btn_sustenido = 1;
+  StepCycles(fpga->param_debounce_tecla + 10U);
+  for (int k = 0; k < 2; ++k)
+  {
+    fpga->gpio_keys = kTrillKeys[k];
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    WaitUartAndAudioIdle(1);
+    fpga->gpio_keys = 0x00U;
+    StepCycles(fpga->param_debounce_tecla + 10U);
+    WaitUartAndAudioIdle(1);
+  }
+  fpga->btn_sustenido = 0;
+  StepCycles(fpga->param_debounce_tecla + 10U);
+
   check(g_ctx.max_active_voices_seen == kMaxPolyphonyVoices,
         "TSF_POLYPHONY_VOICE_STEALING",
-        "Estresse de polifonia nao atingiu ou excedeu o teto de 12 vozes do TSF");
+        "Estresse de polifonia nao atingiu ou excedeu o teto de 7 vozes mono do TSF");
   check(CountSustainedVoices() == 0, "TSF_POLYPHONY_RELEASED",
         "Voz ficou sustentada apos rajada de voice-stealing");
   printf("      OK: Ressincronismo UART e voice-stealing (%d/%d vozes) validados.\n",
@@ -1216,9 +1693,9 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     WaitUartAndAudioIdle(4);
   }
   // --------------------------------------------------------------------------
-  // Teste 9: Invariantes Globais de Audio PCM, Filas e Vozes
+  // Teste 12: Invariantes Globais de Audio PCM, Filas e Vozes
   // --------------------------------------------------------------------------
-  printf("[9/9] Verificando invariantes globais (PCM, filas, framing, zero zumbis)...\n");
+  printf("[12/12] Verificando invariantes globais (PCM, filas, framing, zero zumbis)...\n");
   // Renderiza cauda final de release para confirmar retorno a 0 vozes totais
   for (int i = 0; i < 200; ++i)
   {
@@ -1345,7 +1822,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
 
   if (failures == 0)
   {
-    printf(" RESULTADO FINAL: TODOS OS 9 CENARIOS E INVARIANTES PASSARAM!\n");
+    printf(" RESULTADO FINAL: TODOS OS 12 CENARIOS E INVARIANTES PASSARAM!\n");
     printf("====================================================================\n");
     return 0;
   }
@@ -1460,6 +1937,94 @@ static int RunLockstepDump(const char *out_path, const char *rom_hex_path)
     if (cyc == 1965)
       dut.gpio_keys = 0x00;
 
+    // Cicla os 5 niveis de volume (1->2->3->4[mudo]->0[100%]) durante Demo
+    if (cyc == 2300)
+      dut.btn_modo_n = 0;
+    if (cyc == 2320)
+      dut.btn_intensidade_n = 0;
+    if (cyc == 2332)
+      dut.btn_intensidade_n = 1;
+    if (cyc == 2350)
+      dut.btn_intensidade_n = 0;
+    if (cyc == 2362)
+      dut.btn_intensidade_n = 1;
+    if (cyc == 2380)
+      dut.btn_intensidade_n = 0;
+    if (cyc == 2392)
+      dut.btn_intensidade_n = 1;
+    if (cyc == 2452)
+      dut.btn_intensidade_n = 0;
+    if (cyc == 2464)
+      dut.btn_intensidade_n = 1;
+    if (cyc == 2480)
+      dut.btn_modo_n = 1;
+
+    // Volta para Modo 0 e seleciona musica 42 (RAM): 4 + 38 = 42
+    if (cyc == 2500)
+      dut.btn_modo_n = 0;
+    if (cyc == 2510)
+      dut.btn_modo_n = 1;
+    if (cyc >= 2540 && cyc < 3300)
+      dut.btn_musica_n = (((cyc - 2540) % 20) < 10) ? 0 : 1;
+    if (cyc == 3300)
+      dut.btn_musica_n = 1;
+
+    // Vai para Modo 2 (Gravacao) e grava legato (C4->E4) + pausa + G4 na RAM
+    if (cyc == 3320)
+      dut.btn_modo_n = 0;
+    if (cyc == 3330)
+      dut.btn_modo_n = 1;
+    if (cyc == 3350)
+      dut.btn_modo_n = 0;
+    if (cyc == 3360)
+      dut.btn_modo_n = 1;
+    if (cyc == 3390)
+      dut.gpio_keys = 0x01;
+    if (cyc == 3520)
+      dut.gpio_keys = 0x05;
+    if (cyc == 3595)
+      dut.gpio_keys = 0x00;
+    if (cyc == 3730)
+      dut.gpio_keys = 0x10;
+    if (cyc == 3805)
+      dut.gpio_keys = 0x00;
+
+    // Vai para Modo 3 (Demo) e reproduz gravacao RAM (persistencia)
+    if (cyc == 3830)
+      dut.btn_modo_n = 0;
+    if (cyc == 3840)
+      dut.btn_modo_n = 1;
+    if (cyc == 3860)
+      dut.gpio_keys = 0x01;
+    if (cyc == 3872)
+      dut.gpio_keys = 0x00;
+
+    // Vai para Modo 0 -> Modo 1 na musica 42 (RAM), completa 3 notas e testa auto-reinicio
+    if (cyc == 4460)
+      dut.btn_modo_n = 0;
+    if (cyc == 4470)
+      dut.btn_modo_n = 1;
+    if (cyc == 4490)
+      dut.btn_modo_n = 0;
+    if (cyc == 4500)
+      dut.btn_modo_n = 1;
+    if (cyc == 4525)
+      dut.gpio_keys = 0x01;
+    if (cyc == 4545)
+      dut.gpio_keys = 0x00;
+    if (cyc == 4570)
+      dut.gpio_keys = 0x04;
+    if (cyc == 4590)
+      dut.gpio_keys = 0x00;
+    if (cyc == 4615)
+      dut.gpio_keys = 0x10;
+    if (cyc == 4635)
+      dut.gpio_keys = 0x00;
+    if (cyc == 4720)
+      dut.gpio_keys = 0x01;
+    if (cyc == 4740)
+      dut.gpio_keys = 0x00;
+
     dut.eval();
 
     // Borda de subida
@@ -1553,7 +2118,7 @@ COSIM_EXPORT void cosim_set_inputs(uint8_t gpio_keys, uint8_t btn_sustenido,
   g_ctx.fpga->reset_n = reset_n & 1U;
 }
 
-// Avanca o motor pelo numero exato de blocos de audio I2S (cada bloco = 256 frames = 5.805 ms)
+// Avanca o motor pelo numero exato de blocos de audio I2S (cada bloco = 256 frames = 5.333 ms)
 // e retorna as amostras PCM estereo intercaladas em out_pcm_stereo (256 * num_blocks * 2 int16_t).
 COSIM_EXPORT int cosim_step_audio_blocks(int num_blocks, int16_t *out_pcm_stereo,
                                          CoSimBenchStatus *out_status)

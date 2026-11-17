@@ -4,12 +4,12 @@ Orquestrador Completo da Suite de Co-Simulacao FPGA Cyclone V + ESP32-S3.
 
 Executa em sequencia:
   1. Auditoria de FPU Single-Precision no compilador real Xtensa ESP32-S3
-     (sim/check_esp32_fpu.py).
+     (sim/tests/check_esp32_fpu.py).
   2. Compilacao nativa C++17 do motor unificado (sim/cosim_engine.exe e
      sim/cosim_engine.dll).
   3. Verificacao Lockstep Ciclo-a-Ciclo (5.000 ciclos) entre Vpiano_top (C++) e
-     os 28 arquivos Verilog (.v) reais simulados no ModelSim (vlog/vsim).
-  4. Suite de 9 Cenarios de Estresse e Invariantes Ponta-a-Ponta
+     os arquivos Verilog (.v) reais simulados no ModelSim (vlog/vsim).
+  4. Suite de 12 Cenarios de Estresse e Invariantes Ponta-a-Ponta
      (FPGA -> UART 8N1 -> ESP32 -> TinySoundFont -> PCM .wav).
   5. Testbench Verilog de integracao (piano_top_tb.v) no ModelSim.
   6. Quality Gate de Linting RTL (scripts/lint_verilog.py).
@@ -114,13 +114,14 @@ def build_cosim_binaries(repo_root: Path, force_rebuild: bool = False) -> bool:
       bat_file = Path(tmp_dir) / "build_cosim.bat"
       obj_exe = Path(tmp_dir) / "cosim_exe.obj"
       obj_dll = Path(tmp_dir) / "cosim_dll.obj"
+      implib_exe = Path(tmp_dir) / "cosim_exe.lib"
       bat_content = (
           f'@echo off\r\n'
           f'call "{vcvars}" >nul\r\n'
           f'if errorlevel 1 exit /b 1\r\n'
           f'cl /nologo /O2 /EHsc /std:c++17 /W3 /wd4996 /wd4244 '
           f'/I"{mock_inc}" /I"{synth_inc}" /I"{sim_dir}" '
-          f'"{cpp_path}" /Fe:"{exe_path}" /Fo:"{obj_exe}"\r\n'
+          f'"{cpp_path}" /Fe:"{exe_path}" /Fo:"{obj_exe}" /link /IMPLIB:"{implib_exe}"\r\n'
           f'if errorlevel 1 exit /b 1\r\n'
           f'cl /nologo /O2 /LD /EHsc /std:c++17 /W3 /wd4996 /wd4244 '
           f'/I"{mock_inc}" /I"{synth_inc}" /I"{sim_dir}" '
@@ -326,6 +327,55 @@ module lockstep_tb;
       if (cyc == 1910) btn_modo_n = 1'b1;
       if (cyc == 1950) gpio_keys = 7'h01;
       if (cyc == 1965) gpio_keys = 7'h00;
+
+      // Cicla os 5 niveis de volume (1->2->3->4[mudo]->0[100%]) durante Demo
+      if (cyc == 2300) btn_modo_n = 1'b0;
+      if (cyc == 2320) btn_intensidade_n = 1'b0;
+      if (cyc == 2332) btn_intensidade_n = 1'b1;
+      if (cyc == 2350) btn_intensidade_n = 1'b0;
+      if (cyc == 2362) btn_intensidade_n = 1'b1;
+      if (cyc == 2380) btn_intensidade_n = 1'b0;
+      if (cyc == 2392) btn_intensidade_n = 1'b1;
+      if (cyc == 2452) btn_intensidade_n = 1'b0;
+      if (cyc == 2464) btn_intensidade_n = 1'b1;
+      if (cyc == 2480) btn_modo_n = 1'b1;
+
+      // Volta para Modo 0 e seleciona musica 42 (RAM): 4 + 38 = 42
+      if (cyc == 2500) btn_modo_n = 1'b0;
+      if (cyc == 2510) btn_modo_n = 1'b1;
+      if (cyc >= 2540 && cyc < 3300) btn_musica_n = (((cyc - 2540) % 20) < 10) ? 1'b0 : 1'b1;
+      if (cyc == 3300) btn_musica_n = 1'b1;
+
+      // Vai para Modo 2 (Gravacao) e grava legato (C4->E4) + pausa + G4 na RAM
+      if (cyc == 3320) btn_modo_n = 1'b0;
+      if (cyc == 3330) btn_modo_n = 1'b1;
+      if (cyc == 3350) btn_modo_n = 1'b0;
+      if (cyc == 3360) btn_modo_n = 1'b1;
+      if (cyc == 3390) gpio_keys = 7'h01;
+      if (cyc == 3520) gpio_keys = 7'h05;
+      if (cyc == 3595) gpio_keys = 7'h00;
+      if (cyc == 3730) gpio_keys = 7'h10;
+      if (cyc == 3805) gpio_keys = 7'h00;
+
+      // Vai para Modo 3 (Demo) e reproduz gravacao RAM (persistencia)
+      if (cyc == 3830) btn_modo_n = 1'b0;
+      if (cyc == 3840) btn_modo_n = 1'b1;
+      if (cyc == 3860) gpio_keys = 7'h01;
+      if (cyc == 3872) gpio_keys = 7'h00;
+
+      // Vai para Modo 0 -> Modo 1 na musica 42 (RAM), completa 3 notas e testa auto-reinicio
+      if (cyc == 4460) btn_modo_n = 1'b0;
+      if (cyc == 4470) btn_modo_n = 1'b1;
+      if (cyc == 4490) btn_modo_n = 1'b0;
+      if (cyc == 4500) btn_modo_n = 1'b1;
+      if (cyc == 4525) gpio_keys = 7'h01;
+      if (cyc == 4545) gpio_keys = 7'h00;
+      if (cyc == 4570) gpio_keys = 7'h04;
+      if (cyc == 4590) gpio_keys = 7'h00;
+      if (cyc == 4615) gpio_keys = 7'h10;
+      if (cyc == 4635) gpio_keys = 7'h00;
+      if (cyc == 4720) gpio_keys = 7'h01;
+      if (cyc == 4740) gpio_keys = 7'h00;
       #10;
 
       clk = 1'b1;
@@ -467,12 +517,12 @@ def main() -> int:
   )
   args = parser.parse_args()
 
-  repo_root = Path(__file__).resolve().parent.parent
+  repo_root = Path(__file__).resolve().parents[2]
 
   # 1. Auditoria FPU Xtensa ESP32-S3
   if not args.skip_fpu_audit:
     res_fpu = subprocess.run(
-        [sys.executable, str(repo_root / "sim" / "check_esp32_fpu.py")],
+        [sys.executable, str(repo_root / "sim" / "tests" / "check_esp32_fpu.py")],
         cwd=str(repo_root),
     )
     if res_fpu.returncode != 0:

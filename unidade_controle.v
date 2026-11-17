@@ -12,6 +12,7 @@ module unidade_controle (
   input  wire       mudou_musica,
   input  wire       tem_nota_ativa,
   input  wire       tecla_pressionada,
+  input  wire       troca_nota_grav,
   input  wire       acerto_nota,
   input  wire       fim_musica,
   input  wire       pulso_bpm,
@@ -88,7 +89,11 @@ module unidade_controle (
         modo_ativo    = 2'd1;
         zera_endereco = 1'b1;
         estado_hex    = 5'h1;
-        state_next    = kLeRamModo1;
+        if (mudou_modo) begin
+          state_next = kIniciaGravacao;
+        end else begin
+          state_next = kLeRamModo1;
+        end
       end
 
       kEsperaNota: begin
@@ -205,7 +210,7 @@ module unidade_controle (
         estado_hex = 5'h1;
         if (mudou_modo) begin
           state_next = kIniciaGravacao;
-        end else if (mudou_musica) begin
+        end else begin
           state_next = kIniciaMusica;
         end
       end
@@ -222,7 +227,7 @@ module unidade_controle (
         estado_hex = 5'h2;
         if (mudou_modo) begin
           state_next = kIniciaDemo;
-        end else if (tem_nota_ativa) begin
+        end else if (tem_nota_ativa && !fim_musica) begin
           state_next = kGravSoltar;
         end
       end
@@ -232,8 +237,14 @@ module unidade_controle (
         estado_hex = 5'h2;
         if (mudou_modo) begin
           state_next = kIniciaDemo;
+        end else if (fim_musica) begin
+          state_next = kGravEsperaNota;
         end else if (!tem_nota_ativa) begin
           state_next = kGravArmazena;
+        end else if (troca_nota_grav) begin
+          escreve_ram    = 1'b1;
+          conta_endereco = 1'b1;
+          state_next     = kGravSoltar;
         end
       end
 

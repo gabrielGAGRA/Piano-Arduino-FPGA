@@ -16,6 +16,7 @@ module unidade_controle_tb;
   reg        mudou_musica;
   reg        tem_nota_ativa;
   reg        tecla_pressionada;
+  reg        troca_nota_grav;
   reg        acerto_nota;
   reg        fim_musica;
   reg        pulso_bpm;
@@ -41,6 +42,7 @@ module unidade_controle_tb;
     .mudou_musica      (mudou_musica),
     .tem_nota_ativa    (tem_nota_ativa),
     .tecla_pressionada (tecla_pressionada),
+    .troca_nota_grav   (troca_nota_grav),
     .acerto_nota       (acerto_nota),
     .fim_musica        (fim_musica),
     .pulso_bpm         (pulso_bpm),
@@ -65,6 +67,7 @@ module unidade_controle_tb;
       mudou_musica      <= 1'b0;
       tem_nota_ativa    <= 1'b0;
       tecla_pressionada <= 1'b0;
+      troca_nota_grav   <= 1'b0;
       acerto_nota       <= 1'b0;
       fim_musica        <= 1'b0;
       pulso_bpm         <= 1'b0;
@@ -221,12 +224,19 @@ module unidade_controle_tb;
       fim_musica <= 1'b0;
       expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_FIM_MUSICA_ST");
 
-      // Pressionar tecla em kFimMusicaSt nao deve pulsar erro nem sair de kFimMusicaSt
+      // kFimMusicaSt reinicia automaticamente para kIniciaMusica sem pulsar erro/acerto
       tem_nota_ativa <= 1'b1;
       @(negedge clk);
-      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_FIM_SEM_ERRO");
-      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_FIM_MANTEM_ESTADO");
+      expect_inc(1'b0, 1'b0, "TESTE_APRENDIZADO_AUTO_RESTART_SEM_INC");
+      expect_flags(1'b0, 1'b1, 1'b0, "TESTE_APRENDIZADO_AUTO_RESTART_ZERA_END");
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_AUTO_RESTART_INICIA");
       tem_nota_ativa <= 1'b0;
+
+      // Avanca kIniciaMusica -> kLeRamModo1 -> kEsperaNota
+      @(negedge clk);
+      expect_flags(1'b0, 1'b0, 1'b0, "TESTE_APRENDIZADO_AUTO_RESTART_LE_RAM");
+      @(negedge clk);
+      expect_modo_estado(2'd1, 5'h1, "TESTE_APRENDIZADO_AUTO_RESTART_ESPERA");
     end
   endtask
 
@@ -235,11 +245,13 @@ module unidade_controle_tb;
       tests_run = tests_run + 1;
       setup();
 
+      // Vai para Modo 1 (Aprendizado)
       @(negedge clk);
       mudou_modo <= 1'b1;
-      repeat (2) @(negedge clk);
+      @(negedge clk);
       mudou_modo <= 1'b0;
 
+      // Vai para Modo 2 (Gravacao)
       @(negedge clk);
       mudou_modo <= 1'b1;
       @(negedge clk);
@@ -253,6 +265,18 @@ module unidade_controle_tb;
       tem_nota_ativa <= 1'b1;
       @(negedge clk);
       expect_flags(1'b0, 1'b0, 1'b0, "TESTE_GRAVACAO_SOLTAR_AGUARDA");
+
+      // Troca de nota ligada (legato) em kGravSoltar pulsa escreve_ram e conta_endereco
+      // permanecendo em kGravSoltar
+      troca_nota_grav <= 1'b1;
+      #1;
+      expect_flags(1'b1, 1'b0, 1'b1, "TESTE_GRAVACAO_TROCA_NOTA_PULSA");
+      expect_modo_estado(2'd2, 5'h2, "TESTE_GRAVACAO_TROCA_NOTA_MODO");
+      @(negedge clk);
+      troca_nota_grav <= 1'b0;
+      #1;
+      expect_flags(1'b0, 1'b0, 1'b0, "TESTE_GRAVACAO_TROCA_NOTA_FIM_PULSO");
+      expect_modo_estado(2'd2, 5'h2, "TESTE_GRAVACAO_TROCA_NOTA_PERMANECE_SOLTAR");
 
       tem_nota_ativa <= 1'b0;
       @(negedge clk);

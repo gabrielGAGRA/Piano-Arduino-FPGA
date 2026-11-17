@@ -12,7 +12,7 @@ module piano_top_tb;
   localparam DebounceControle = 10;
   localparam ClockDivUart     = 4;
   localparam CiclosTick8ms    = 200;
-  localparam WatchdogMaxNs    = 20_000_000;
+  localparam WatchdogMaxNs    = 50_000_000;
 
   reg        clk;
   reg        reset_n;
@@ -201,6 +201,23 @@ module piano_top_tb;
     end
   endtask
 
+  task press_combo_volume;
+    begin
+      @(negedge clk);
+      btn_modo_n <= 1'b0;
+      repeat (DebounceControle + 3) @(posedge clk);
+      @(negedge clk);
+      btn_intensidade_n <= 1'b0;
+      repeat (DebounceControle + 3) @(posedge clk);
+      @(negedge clk);
+      btn_intensidade_n <= 1'b1;
+      repeat (DebounceControle + 3) @(posedge clk);
+      @(negedge clk);
+      btn_modo_n <= 1'b1;
+      repeat (DebounceControle + 3) @(posedge clk);
+    end
+  endtask
+
   task test_modo_livre_midi;
     begin
       tests_run = tests_run + 1;
@@ -313,10 +330,15 @@ module piano_top_tb;
 
   task test_gravacao_e_demonstracao_ram;
     integer idx;
-    time    t_on;
-    time    t_off;
+    integer cyc;
+    time    t_on1;
+    time    t_off1;
+    time    t_on2;
+    time    t_off2;
+    time    t_tick;
     begin
       tests_run = tests_run + 1;
+      t_tick    = CiclosTick8ms * ClkPeriodNs;
       setup();
 
       for (idx = 0; idx < 42; idx = idx + 1) begin
@@ -326,34 +348,60 @@ module piano_top_tb;
       press_btn_modo();
       press_btn_modo();
 
+      // 1. Espera antes da 1a nota no Modo 2 NAO pode virar pausa apos a 1a nota
+      repeat (5 * CiclosTick8ms) @(posedge clk);
+
+      // 2. Grava 2 notas com duracoes distintas e pausa entre elas:
+      // Nota 1 (C4): ~2 ticks; Pausa: ~3 ticks; Nota 2 (E4): ~5 ticks
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "GRAV_MONITOR_NOTE_ON");
-          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "GRAV_MONITOR_NOTE_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "GRAV_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "GRAV_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "GRAV_N2_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "GRAV_N2_OFF");
         end
         begin
           @(negedge clk);
           gpio_keys <= 7'b0000001;
-          repeat ((2 * CiclosTick8ms) + DebounceTecla + 4) @(posedge clk);
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat ((3 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000100;
+          repeat ((5 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
           @(negedge clk);
           gpio_keys <= 7'b0000000;
           repeat ((2 * CiclosTick8ms) + DebounceTecla + 4) @(posedge clk);
         end
       join
 
-      begin
-        press_btn_modo();
-      end
+      press_btn_modo();
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "DEMO_RAM_PLAYBACK_NOTE_ON");
-          t_on = $time;
-          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "DEMO_RAM_PLAYBACK_NOTE_OFF");
-          t_off = $time;
-          if ((t_off - t_on) < (2 * CiclosTick8ms * ClkPeriodNs)) begin
-            $display("[FALHA] %0t ns | DEMO_RAM_DURATION: esperado >= %0d ns, obtido %0d ns",
-              $time, (2 * CiclosTick8ms * ClkPeriodNs), (t_off - t_on));
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "DEMO_RAM_N1_ON");
+          t_on1 = $time;
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "DEMO_RAM_N1_OFF");
+          t_off1 = $time;
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "DEMO_RAM_N2_ON");
+          t_on2 = $time;
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "DEMO_RAM_N2_OFF");
+          t_off2 = $time;
+
+          if (((t_off1 - t_on1) < (2 * t_tick)) || ((t_off1 - t_on1) >= (4 * t_tick))) begin
+            $display("[FALHA] %0t ns | DEMO_RAM_N1_DUR: esperado [2..4) ticks, obtido %0d ns",
+              $time, (t_off1 - t_on1));
+            errors = errors + 1;
+          end
+          if (((t_on2 - t_off1) < (3 * t_tick)) || ((t_on2 - t_off1) >= (5 * t_tick))) begin
+            $display("[FALHA] %0t ns | DEMO_RAM_N1_PAUSA: esperado [3..5) ticks, obtido %0d ns",
+              $time, (t_on2 - t_off1));
+            errors = errors + 1;
+          end
+          if ((t_off2 - t_on2) < (5 * t_tick)) begin
+            $display("[FALHA] %0t ns | DEMO_RAM_N2_DUR: esperado >= %0d ns, obtido %0d ns",
+              $time, (5 * t_tick), (t_off2 - t_on2));
             errors = errors + 1;
           end
         end
@@ -366,8 +414,14 @@ module piano_top_tb;
         end
       join
 
-      begin
-        repeat (20) @(posedge clk);
+      for (cyc = 0; cyc < (2 * CiclosTick8ms); cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | DEMO_RAM_SILENCIO_POS_FIM: saida_serial=%b",
+            $time, saida_serial);
+          errors = errors + 1;
+        end
       end
     end
   endtask
@@ -536,8 +590,60 @@ module piano_top_tb;
       join
 
       if ({d0, d1, d2, d3, d4, d5, d6} !==
-          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd87, 8'h36}) begin
-        $display("[FAIL] %0t ns | DASH_PKT: exp AAD10607015736, got %02h%02h%02h%02h%02h%02h%02h",
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd46, 8'h0D}) begin
+        $display("[FAIL] %0t ns | DASH_RUSH: exp AAD10607012E0D, got %02h%02h%02h%02h%02h%02h%02h",
+          $time, d0, d1, d2, d3, d4, d5, d6);
+        errors = errors + 1;
+      end
+
+      // 4. Verifica reinicio automatico do Modo 1 (endereco=0, acertos=0, erros=0)
+      repeat (20) @(posedge clk);
+      if (piano_top_inst.fsm_modo_ativo !== 2'd1) begin
+        $display("[FALHA] %0t ns | AUTO_RESTART_MODO: esperado 1, obtido %0d",
+          $time, piano_top_inst.fsm_modo_ativo);
+        errors = errors + 1;
+      end
+      if (piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd0) begin
+        $display("[FALHA] %0t ns | AUTO_RESTART_ADDR: esperado 0, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.s_endereco_ram);
+        errors = errors + 1;
+      end
+      if ((piano_top_inst.fluxo_dados_inst.acertos !== 8'd0) ||
+          (piano_top_inst.fluxo_dados_inst.erros !== 8'd0) ||
+          (piano_top_inst.fluxo_dados_inst.pontos_apre !== 10'd0)) begin
+        $display("[FALHA] %0t ns | AUTO_RESTART_CONTADORES: a=%0d e=%0d p=%0d",
+          $time, piano_top_inst.fluxo_dados_inst.acertos,
+          piano_top_inst.fluxo_dados_inst.erros,
+          piano_top_inst.fluxo_dados_inst.pontos_apre);
+        errors = errors + 1;
+      end
+
+      // 5. Reexecucao no tempo certo (40 ticks nota, 5 ticks pausa) -> score 100%
+      fork
+        begin
+          receive_dashboard_uart_byte(d0);
+          receive_dashboard_uart_byte(d1);
+          receive_dashboard_uart_byte(d2);
+          receive_dashboard_uart_byte(d3);
+          receive_dashboard_uart_byte(d4);
+          receive_dashboard_uart_byte(d5);
+          receive_dashboard_uart_byte(d6);
+        end
+        begin
+          for (note_idx = 0; note_idx < 7; note_idx = note_idx + 1) begin
+            @(negedge clk);
+            gpio_keys <= (7'b0000001 << note_idx);
+            repeat ((40 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+            @(negedge clk);
+            gpio_keys <= 7'b0000000;
+            repeat ((5 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+          end
+        end
+      join
+
+      if ({d0, d1, d2, d3, d4, d5, d6} !==
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd0, 8'd100, 8'h42}) begin
+        $display("[FAIL] %0t ns | DASH_100: exp AAD10607006442, got %02h%02h%02h%02h%02h%02h%02h",
           $time, d0, d1, d2, d3, d4, d5, d6);
         errors = errors + 1;
       end
@@ -730,8 +836,59 @@ module piano_top_tb;
       join
 
       if ({d0, d1, d2, d3, d4, d5, d6} !==
-          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd87, 8'h36}) begin
-        $display("[FALHA] %0t ns | DASH_PKT: exp AAD10607015736, got %02h%02h%02h%02h%02h%02h%02h",
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd1, 8'd46, 8'h0D}) begin
+        $display("[FAIL] %0t ns | S4_RUSH: exp AAD10607012E0D, got %02h%02h%02h%02h%02h%02h%02h",
+          $time, d0, d1, d2, d3, d4, d5, d6);
+        errors = errors + 1;
+      end
+
+      // Verifica reinicio automatico e nova execucao com ritmo perfeito (100%)
+      repeat (20) @(posedge clk);
+      if ((piano_top_inst.fsm_modo_ativo !== 2'd1) ||
+          (piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd0) ||
+          (piano_top_inst.fluxo_dados_inst.acertos !== 8'd0) ||
+          (piano_top_inst.fluxo_dados_inst.erros !== 8'd0)) begin
+        $display("[FALHA] %0t ns | SEMANA4_AUTO_RESTART: modo=%0d addr=%0d a=%0d e=%0d",
+          $time, piano_top_inst.fsm_modo_ativo,
+          piano_top_inst.fluxo_dados_inst.s_endereco_ram,
+          piano_top_inst.fluxo_dados_inst.acertos,
+          piano_top_inst.fluxo_dados_inst.erros);
+        errors = errors + 1;
+      end
+
+      fork
+        begin
+          for (note_idx = 0; note_idx < 7; note_idx = note_idx + 1) begin
+            receive_and_verify_midi_packet(
+              {8'h90, 1'b0, exp_notes[note_idx], 8'd127}, "M1_PERFECT_ON");
+            receive_and_verify_midi_packet(
+              {8'h80, 1'b0, exp_notes[note_idx], 8'd0},   "M1_PERFECT_OFF");
+          end
+        end
+        begin
+          receive_dashboard_uart_byte(d0);
+          receive_dashboard_uart_byte(d1);
+          receive_dashboard_uart_byte(d2);
+          receive_dashboard_uart_byte(d3);
+          receive_dashboard_uart_byte(d4);
+          receive_dashboard_uart_byte(d5);
+          receive_dashboard_uart_byte(d6);
+        end
+        begin
+          for (stim_idx = 0; stim_idx < 7; stim_idx = stim_idx + 1) begin
+            @(negedge clk);
+            gpio_keys <= (7'b0000001 << stim_idx);
+            repeat ((40 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+            @(negedge clk);
+            gpio_keys <= 7'b0000000;
+            repeat ((5 * CiclosTick8ms) + DebounceTecla + 10) @(posedge clk);
+          end
+        end
+      join
+
+      if ({d0, d1, d2, d3, d4, d5, d6} !==
+          {8'hAA, 8'hD1, 8'h06, 8'd7, 8'd0, 8'd100, 8'h42}) begin
+        $display("[FAIL] %0t ns | S4_100: exp AAD10607006442, got %02h%02h%02h%02h%02h%02h%02h",
           $time, d0, d1, d2, d3, d4, d5, d6);
         errors = errors + 1;
       end
@@ -817,6 +974,503 @@ module piano_top_tb;
     end
   endtask
 
+  task test_gravacao_legato_e_persistencia_ram;
+    integer idx;
+    integer cyc;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      for (idx = 0; idx < 42; idx = idx + 1) begin
+        press_btn_musica();
+      end
+
+      // Entra no Modo 2 e testa legato C4 -> C4+E4 -> C4 -> soltar (grava 60 -> 64 -> 60)
+      press_btn_modo();
+      press_btn_modo();
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M2_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M2_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "LEGATO_M2_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "LEGATO_M2_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M2_N2_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M2_N2_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000101;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 20) @(posedge clk);
+        end
+      join
+
+      if (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd2) begin
+        $display("[FALHA] %0t ns | LEGATO_ULT_END: esperado 2, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg);
+        errors = errors + 1;
+      end
+
+      // Reproduz no Modo 3 e verifica as 3 notas ligadas
+      press_btn_modo();
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M3_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "LEGATO_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "LEGATO_M3_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M3_N2_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M3_N2_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+      repeat (CiclosTick8ms) @(posedge clk);
+
+      // Persistencia da RAM entre ciclos de modo (3 -> 0 -> 1 -> 2 -> 3) sem tocar no Modo 2
+      press_btn_modo();
+      press_btn_modo();
+      press_btn_modo();
+      repeat (50) @(posedge clk);
+      if (piano_top_inst.fluxo_dados_inst.grav_tem_dados_reg !== 1'b1) begin
+        $display("[FALHA] %0t ns | RAM_PERSIST_FLAG: esperado 1, obtido %b",
+          $time, piano_top_inst.fluxo_dados_inst.grav_tem_dados_reg);
+        errors = errors + 1;
+      end
+      press_btn_modo();
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "PERSIST_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "PERSIST_M3_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "PERSIST_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "PERSIST_M3_N1_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "PERSIST_M3_N2_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "PERSIST_M3_N2_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+      repeat (CiclosTick8ms) @(posedge clk);
+
+      // Sobrescrita apenas ao tocar nova sequencia no Modo 2 (C4 -> C4+E4 -> E4 -> soltar = 60, 64)
+      press_btn_modo();
+      press_btn_modo();
+      press_btn_modo();
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "OVERWRITE_M2_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "OVERWRITE_M2_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "OVERWRITE_M2_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "OVERWRITE_M2_N1_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (CiclosTick8ms + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000101;
+          repeat (CiclosTick8ms + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000100;
+          repeat (CiclosTick8ms + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 20) @(posedge clk);
+        end
+      join
+
+      if (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd1) begin
+        $display("[FALHA] %0t ns | OVERWRITE_ULT_END: esperado 1, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg);
+        errors = errors + 1;
+      end
+
+      press_btn_modo();
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "OVERWRITE_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "OVERWRITE_M3_N0_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "OVERWRITE_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "OVERWRITE_M3_N1_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+
+      for (cyc = 0; cyc < (2 * CiclosTick8ms); cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | OVERWRITE_SEM_RESTO_ANTIGO: saida_serial=%b",
+            $time, saida_serial);
+          errors = errors + 1;
+        end
+      end
+    end
+  endtask
+
+  task check_vol_hex(
+    input [6:0]   exp_hex5,
+    input [6:0]   exp_hex4,
+    input [6:0]   exp_hex3,
+    input [6:0]   exp_hex2,
+    input [255:0] tag
+  );
+    begin
+      if (hex5_modo !== exp_hex5 || hex4_oitava !== exp_hex4 ||
+          hex3_musica_dezena !== exp_hex3 || hex2_musica_unidade !== exp_hex2) begin
+        $display("[FALHA] %0t ns | %0s: HEX esperados (%h,%h,%h,%h), obtidos (%h,%h,%h,%h)",
+          $time, tag, exp_hex5, exp_hex4, exp_hex3, exp_hex2,
+          hex5_modo, hex4_oitava, hex3_musica_dezena, hex2_musica_unidade);
+        errors = errors + 1;
+      end
+    end
+  endtask
+
+  task test_volume_cinco_niveis;
+    integer idx;
+    integer cyc;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      // 1. Testa 5 niveis no Modo 0 (100%, 75%, 50%, 25%, 0% mudo) e retorno a 100%
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "VOL_100_M0_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_100_M0_OFF");
+      repeat (10) @(posedge clk);
+
+      press_combo_volume();
+      check_vol_hex(7'h7F, 7'h78, 7'h12, 7'h0C, "VOL_HEX_75P");
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd94}, "VOL_75_M0_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_75_M0_OFF");
+      repeat (10) @(posedge clk);
+
+      press_combo_volume();
+      check_vol_hex(7'h7F, 7'h12, 7'h40, 7'h0C, "VOL_HEX_50P");
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd63}, "VOL_50_M0_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_50_M0_OFF");
+      repeat (10) @(posedge clk);
+
+      press_combo_volume();
+      check_vol_hex(7'h7F, 7'h24, 7'h12, 7'h0C, "VOL_HEX_25P");
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd31}, "VOL_25_M0_ON");
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_25_M0_OFF");
+      repeat (10) @(posedge clk);
+
+      press_combo_volume();
+      check_vol_hex(7'h7F, 7'h7F, 7'h40, 7'h0C, "VOL_HEX_0P");
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      for (cyc = 0; cyc < 200; cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | VOL_0_M0_MUDO_ON: saida_serial=%b", $time, saida_serial);
+          errors = errors + 1;
+        end
+      end
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      for (cyc = 0; cyc < 200; cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | VOL_0_M0_MUDO_OFF: saida_serial=%b", $time, saida_serial);
+          errors = errors + 1;
+        end
+      end
+
+      press_combo_volume();
+      check_vol_hex(7'h79, 7'h40, 7'h40, 7'h0C, "VOL_HEX_100P");
+
+      // 2. Testa 25% e 0% (mudo) no Modo Demonstracao (Modo 3)
+      for (idx = 0; idx < 42; idx = idx + 1) begin
+        press_btn_musica();
+      end
+      press_btn_modo();
+      press_btn_modo();
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "VOL_DEMO_REC_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "VOL_DEMO_REC_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 4) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 10) @(posedge clk);
+        end
+      join
+
+      press_btn_modo();
+      press_combo_volume();
+      press_combo_volume();
+      press_combo_volume();
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd31}, "VOL_DEMO_25_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},  "VOL_DEMO_25_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+      repeat (CiclosTick8ms) @(posedge clk);
+
+      press_combo_volume();
+      @(negedge clk);
+      gpio_keys <= 7'b0000001;
+      repeat (DebounceTecla + 3) @(posedge clk);
+      @(negedge clk);
+      gpio_keys <= 7'b0000000;
+      for (cyc = 0; cyc < (5 * CiclosTick8ms); cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | VOL_DEMO_0_MUDO: saida_serial=%b", $time, saida_serial);
+          errors = errors + 1;
+        end
+      end
+    end
+  endtask
+
+  task test_gravacao_limite_ram_1023;
+    integer idx;
+    integer cyc;
+    begin
+      tests_run = tests_run + 1;
+      setup();
+
+      for (idx = 0; idx < 42; idx = idx + 1) begin
+        press_btn_musica();
+      end
+      press_btn_modo();
+      press_btn_modo();
+
+      // 1. Grava Do4 (60) no endereco 0 para validar nao-sobrescrita
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LIM_N0_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LIM_N0_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 15) @(posedge clk);
+        end
+      join
+
+      if ((piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0] !== 7'd60) ||
+          (piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd1) ||
+          (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd0)) begin
+        $display("[FALHA] %0t ns | LIM_ADDR0: ram0=%0d addr=%0d ult=%0d",
+          $time,
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0],
+          piano_top_inst.fluxo_dados_inst.s_endereco_ram,
+          piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg);
+        errors = errors + 1;
+      end
+
+      // 2. Avanca para 1022 e grava Sol4 (67), avancando s_endereco_ram para 1023
+      @(negedge clk);
+      piano_top_inst.fluxo_dados_inst.contador_m_addr.q = 10'd1022;
+      @(posedge clk);
+      #1;
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_1022_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_1022_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0010000;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 15) @(posedge clk);
+        end
+      join
+
+      if ((piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd1023) ||
+          (piano_top_inst.fluxo_dados_inst.fim_musica !== 1'b1) ||
+          (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd1022) ||
+          (piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][6:0] !== 7'd67)) begin
+        $display("[FALHA] %0t ns | LIM_POS_1022: addr=%0d fim=%b ult=%0d ram1022=%0d",
+          $time,
+          piano_top_inst.fluxo_dados_inst.s_endereco_ram,
+          piano_top_inst.fluxo_dados_inst.fim_musica,
+          piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg,
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][6:0]);
+        errors = errors + 1;
+      end
+
+      // 3. Tenta pressionar La4 (69) em 1023: nao deve gravar, dar wrap ou corromper RAM
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd127}, "LIM_FULL_LA4_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd69, 8'd0},   "LIM_FULL_LA4_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0100000;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 15) @(posedge clk);
+        end
+      join
+
+      if ((piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd1023) ||
+          (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd1022) ||
+          (piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0] !== 7'd60) ||
+          (piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][29:22] !== 8'd0) ||
+          (piano_top_inst.unidade_controle_inst.state_reg !== 5'd9)) begin
+        $display("[FALHA] %0t ns | LIM_1023_GUARD: addr=%0d ult=%0d r0=%0d p1022=%0d st=%0d",
+          $time,
+          piano_top_inst.fluxo_dados_inst.s_endereco_ram,
+          piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg,
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0],
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][29:22],
+          piano_top_inst.unidade_controle_inst.state_reg);
+        errors = errors + 1;
+      end
+
+      // 4. Testa troca_nota_grav ao cruzar 1022 -> 1023: retorna a kGravEsperaNota sem wrap
+      @(negedge clk);
+      piano_top_inst.fluxo_dados_inst.contador_m_addr.q = 10'd1022;
+      @(posedge clk);
+      #1;
+
+      fork
+        begin
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_TROCA_SOL4_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_TROCA_SOL4_OFF");
+          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd127}, "LIM_TROCA_LA4_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd69, 8'd0},   "LIM_TROCA_LA4_OFF");
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0010000;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0110000;
+          repeat ((2 * CiclosTick8ms) + DebounceTecla + 5) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+          repeat (DebounceTecla + 15) @(posedge clk);
+        end
+      join
+
+      if ((piano_top_inst.fluxo_dados_inst.s_endereco_ram !== 10'd1023) ||
+          (piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg !== 10'd1022) ||
+          (piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0] !== 7'd60) ||
+          (piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][6:0] !== 7'd67) ||
+          (piano_top_inst.unidade_controle_inst.state_reg !== 5'd9)) begin
+        $display("[FALHA] %0t ns | LIM_TROCA_GUARD: addr=%0d ult=%0d r0=%0d r1022=%0d st=%0d",
+          $time,
+          piano_top_inst.fluxo_dados_inst.s_endereco_ram,
+          piano_top_inst.fluxo_dados_inst.ultimo_end_gravado_reg,
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[0][6:0],
+          piano_top_inst.fluxo_dados_inst.sync_ram_gravacao.ram[1022][6:0],
+          piano_top_inst.unidade_controle_inst.state_reg);
+        errors = errors + 1;
+      end
+
+      // 5. Modo 3 Demo a partir de 1022 toca Sol4 (67) e para em 1023 (fim_musica=1)
+      press_btn_modo();
+      fork
+        begin
+          wait (piano_top_inst.unidade_controle_inst.state_reg == 5'd13);
+          @(negedge clk);
+          piano_top_inst.fluxo_dados_inst.contador_m_addr.q = 10'd1022;
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_DEMO_1022_ON");
+          receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_DEMO_1022_OFF");
+        end
+        begin
+          wait (piano_top_inst.fluxo_dados_inst.s_endereco_ram == 10'd1023);
+          #1;
+          if (piano_top_inst.fluxo_dados_inst.fim_musica !== 1'b1) begin
+            $display("[FALHA] %0t ns | LIM_DEMO_FIM_1023: fim_musica=%b",
+              $time, piano_top_inst.fluxo_dados_inst.fim_musica);
+            errors = errors + 1;
+          end
+          wait (piano_top_inst.unidade_controle_inst.state_reg == 5'd15);
+        end
+        begin
+          @(negedge clk);
+          gpio_keys <= 7'b0000001;
+          repeat (DebounceTecla + 3) @(posedge clk);
+          @(negedge clk);
+          gpio_keys <= 7'b0000000;
+        end
+      join
+
+      for (cyc = 0; cyc < (2 * CiclosTick8ms); cyc = cyc + 1) begin
+        @(posedge clk);
+        #1;
+        if (saida_serial !== 1'b1) begin
+          $display("[FALHA] %0t ns | LIM_DEMO_SILENCIO: saida_serial=%b",
+            $time, saida_serial);
+          errors = errors + 1;
+        end
+      end
+    end
+  endtask
+
   initial begin
     $display("INICIANDO SIMULACAO: piano_top_tb");
 
@@ -824,6 +1478,9 @@ module piano_top_tb;
     test_todas_notas_e_sustenidos_midi();
     test_modo_aprendizado_acerto_erro();
     test_gravacao_e_demonstracao_ram();
+    test_gravacao_legato_e_persistencia_ram();
+    test_gravacao_limite_ram_1023();
+    test_volume_cinco_niveis();
     test_demonstracao_clair_de_lune_rom();
     test_cenario_geral_ponta_a_ponta_semana4();
 

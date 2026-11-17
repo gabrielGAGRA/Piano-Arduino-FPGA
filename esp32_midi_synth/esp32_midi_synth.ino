@@ -64,9 +64,9 @@ constexpr int kI2sBclkPin = I2S_BCLK_PIN;
 constexpr i2s_port_t kI2sPortNum = I2S_NUM_0;
 
 // Parametros de sintese e baixa latencia (< 6 ms).
-constexpr int kSampleRateHz = 44100;
-constexpr int kAudioBlockFrames = 256; // ~5.80 ms por bloco @ 44.1 kHz (margem robusta contra jitter de Flash).
-constexpr int kMaxPolyphonyVoices = 12; // 12 vozes (6 notas estereo simultaneas).
+constexpr int kSampleRateHz = 48000;   // 48 kHz (razao exata 2:1 sobre SoundFont 24 kHz).
+constexpr int kAudioBlockFrames = 256; // ~5.33 ms por bloco @ 48 kHz (margem robusta contra jitter de Flash).
+constexpr int kMaxPolyphonyVoices = 7; // 7 vozes mono (7 notas simultaneas).
 constexpr float kGlobalGainDb = -6.0f; // -6 dB: nivel ideal para caixa de som ativa (1.05 V RMS) e previne clipping digital em polifonia.
 constexpr UBaseType_t kMidiQueueLength = 128;
 
@@ -88,8 +88,71 @@ static uint8_t status_byte = 0;
 static uint8_t data_buf[2] = {0, 0};
 static uint8_t data_idx = 0;
 
-// Buffer intercalado Estereo (L, R) de 16 bits assinado.
+// Buffer mono em float para DSP + buffer intercalado L=R de 16 bits assinado.
+static float mono_buf[kAudioBlockFrames];
 static int16_t audio_buf[kAudioBlockFrames * 2];
+
+// Reverb de sala leve (Schroeder: 4 comb com damping + 2 all-pass em serie @ 48 kHz).
+namespace
+{
+  constexpr int kCombDelays[4] = {1687, 1601, 2053, 2251};
+  constexpr int kAllpassDelays[2] = {347, 113};
+  constexpr float kCombFeedback = 0.72f;
+  constexpr float kCombDamp = 0.35f;
+  constexpr float kAllpassFeedback = 0.50f;
+  constexpr float kReverbDry = 0.92f;
+  constexpr float kReverbWet = 0.14f;
+
+  float comb_buf0[kCombDelays[0]];
+  float comb_buf1[kCombDelays[1]];
+  float comb_buf2[kCombDelays[2]];
+  float comb_buf3[kCombDelays[3]];
+  float *const kCombPtrs[4] = {comb_buf0, comb_buf1, comb_buf2, comb_buf3};
+  int comb_idx[4] = {0, 0, 0, 0};
+  float comb_lp[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  float allpass_buf0[kAllpassDelays[0]];
+  float allpass_buf1[kAllpassDelays[1]];
+  float *const kAllpassPtrs[2] = {allpass_buf0, allpass_buf1};
+  int allpass_idx[2] = {0, 0};
+
+  inline float Undenormalize(float x)
+  {
+    return (x > -1e-15f && x < 1e-15f) ? 0.0f : x;
+  }
+
+  void ApplyRoomReverb(float *buf, int frames)
+  {
+    for (int i = 0; i < frames; ++i)
+    {
+      const float in = buf[i];
+      float wet = 0.0f;
+
+      for (int c = 0; c < 4; ++c)
+      {
+        const int idx = comb_idx[c];
+        const float delayed = kCombPtrs[c][idx];
+        comb_lp[c] = Undenormalize(delayed * (1.0f - kCombDamp) + comb_lp[c] * kCombDamp);
+        kCombPtrs[c][idx] = Undenormalize(in + comb_lp[c] * kCombFeedback);
+        comb_idx[c] = (idx + 1 >= kCombDelays[c]) ? 0 : (idx + 1);
+        wet += delayed;
+      }
+      wet *= 0.25f;
+
+      for (int a = 0; a < 2; ++a)
+      {
+        const int idx = allpass_idx[a];
+        const float delayed = kAllpassPtrs[a][idx];
+        const float out_ap = delayed - wet;
+        kAllpassPtrs[a][idx] = Undenormalize(wet + delayed * kAllpassFeedback);
+        allpass_idx[a] = (idx + 1 >= kAllpassDelays[a]) ? 0 : (idx + 1);
+        wet = out_ap;
+      }
+
+      buf[i] = in * kReverbDry + wet * kReverbWet;
+    }
+  }
+} // namespace
 
 // Inicializacao do Periferico I2S (PCM5102A)
 
@@ -146,9 +209,9 @@ static void ApplyMidiEvent(const MidiEvent *ev)
   {
     if (velocity > 0)
     {
-      // Note On (0x90 com velocity > 0).
-      tsf_note_on(tsf_inst, 0, nota,
-                  static_cast<float>(velocity) / 127.0f);
+      // Note On (0x90 com velocity > 0). Curva quadratica para loudness perceptual natural.
+      const float norm_vel = static_cast<float>(velocity) / 127.0f;
+      tsf_note_on(tsf_inst, 0, nota, norm_vel * norm_vel);
     }
     else
     {
@@ -235,8 +298,25 @@ static void AudioSynthTask(void *pv_parameters)
         ApplyMidiEvent(&ev);
       }
 
-      // 2. Renderiza bloco curto de audio estereo (64 frames = 128 int16_t).
-      tsf_render_short(tsf_inst, audio_buf, kAudioBlockFrames, 0);
+      // 2. Renderiza bloco curto de audio mono (256 frames) e aplica reverb leve.
+      tsf_render_float(tsf_inst, mono_buf, kAudioBlockFrames, 0);
+      ApplyRoomReverb(mono_buf, kAudioBlockFrames);
+
+      for (int i = 0; i < kAudioBlockFrames; ++i)
+      {
+        float scaled = mono_buf[i] * 32767.0f;
+        if (scaled > 32767.0f)
+        {
+          scaled = 32767.0f;
+        }
+        else if (scaled < -32768.0f)
+        {
+          scaled = -32768.0f;
+        }
+        const int16_t sample = static_cast<int16_t>(scaled);
+        audio_buf[2 * i] = sample;
+        audio_buf[2 * i + 1] = sample;
+      }
 
       xSemaphoreGive(tsf_mutex);
     }
@@ -278,9 +358,8 @@ void setup()
   tsf_mutex = xSemaphoreCreateMutex();
   midi_queue = xQueueCreate(kMidiQueueLength, sizeof(MidiEvent));
 
-  // Configura saida estereo 44100 Hz e limite de polifonia (16 vozes).
-  tsf_set_output(tsf_inst, TSF_STEREO_INTERLEAVED, kSampleRateHz,
-                 kGlobalGainDb);
+  // Configura saida mono 48000 Hz e limite de polifonia (7 vozes mono).
+  tsf_set_output(tsf_inst, TSF_MONO, kSampleRateHz, kGlobalGainDb);
   tsf_set_max_voices(tsf_inst, kMaxPolyphonyVoices);
 
   // Inicializa periferico I2S para o DAC PCM5102A.
@@ -298,7 +377,7 @@ void setup()
                           configMAX_PRIORITIES - 2, nullptr, 1);
 
   Serial.println(
-      "[OK] ESP32-S3 MIDI Synth (UART 115200 8N1 | I2S 44.1kHz 16-bit Stereo)");
+      "[OK] ESP32-S3 MIDI Synth (UART 115200 8N1 | I2S 48kHz 16-bit Mono->L/R)");
 
   // Teste de boot: toca uma nota (Dó central - C4) e encerra para confirmar que o DAC e caixa estao ativos
   delay(100);

@@ -1,9 +1,3 @@
-# Guia de Co-Simulação e Bancada Virtual (FPGA Cyclone V + ESP32-S3)
-
-Este guia descreve como utilizar o ambiente de co-simulação integrada do piano digital, permitindo testar a lógica do hardware Verilog (`piano_top.v` e seus 28 módulos) em conjunto com o firmware C/C++ do sintetizador (`esp32_midi_synth.ino`), identificando problemas de áudio, fluxo de dados e notas presas sem a bancada física.
-
----
-
 ## 1. Arquitetura do Ambiente
 
 A co-simulação fecha o ciclo completo entre a FPGA e o microcontrolador:
@@ -17,10 +11,7 @@ A co-simulação fecha o ciclo completo entre a FPGA e o microcontrolador:
 
 ## 2. Bancada Virtual Interativa
 
-A bancada virtual fornece uma interface gráfica para tocar o instrumento no PC e inspecionar os displays e monitores do ESP32 com som em tempo real.
-
 ### Como Iniciar
-No terminal PowerShell, execute:
 
 ```powershell
 python sim/virtual_bench.py
@@ -49,13 +40,10 @@ python sim/virtual_bench.py
 
 ## 3. Suíte de Testes Automatizados
 
-Para validação em lote e prevenção de regressões lógicas, execute a suíte completa:
-
 ```powershell
 python sim/tests/run_cosim_tests.py
 ```
 
-### O que a suíte valida:
 1. **Auditoria de Ponto Flutuante (Xtensa Toolchain):** Compilação com `xtensa-esp32s3-elf-g++ -Werror=double-promotion` e checagem de símbolos via `nm` para garantir zero emulação de `double` por software (`__adddf3`, etc.).
 2. **Lockstep RTL vs C++:** Comparação de 5.000 ciclos entre o motor C++ e a simulação compilada no ModelSim (`vlog`/`vsim`).
 3. **12 Cenários Co-Simulados:**
@@ -80,11 +68,3 @@ Para rodar a co-simulação exatamente na mesma frequência e contagem de ciclos
 .\sim\cosim_engine.exe --suite --full-50mhz
 ```
 
----
-
-## 5. Artefatos e Relatórios Gerados
-
-Ao término de uma simulação ou execução da suíte, os seguintes arquivos são atualizados no diretório `sim/`:
-
-- `sim/cosim_output.wav`: Áudio gerado na saída I2S pelo TinySoundFont (48 kHz, 16-bit estéreo). Pode ser reproduzido em qualquer player de mídia para verificação auditiva.
-- `sim/cosim_report.json`: Relatório estruturado contendo contadores de ciclos, bytes trafegados, lista de eventos MIDI, métricas de amplitude RMS/Pico e diagnóstico de vozes ativas.

@@ -543,11 +543,26 @@ SONG_CATALOG = [
 
 # Configuração com parâmetro classical obrigatório para cada música
 SONG_CONFIG: Dict[str, Dict] = {
+    "Axel_F": {"files": ["Axel_F.mid"], "classical": False},
+    "Bad_Romance": {"files": ["Bad_Romance.mid"], "classical": False},
+    "Beat_It": {"files": ["Beat_It.mid"], "classical": False},
+    "Careless_Whisper": {"files": ["Careless_Whisper.mid"], "classical": False},
     "Clair_de_Lune": {
         "files": ["Clair_de_Lune.mid", "debussy-clair-de-lune.mid"],
         "channels": [0],
         "classical": True,
     },
+    "Clocks": {"files": ["Clocks.mid"], "classical": False},
+    "Fukashigi_No_Carte": {"files": ["Fukashigi_no_Carte.mid"], "classical": False},
+    "Fur_Elise": {"files": ["Fur_Elise.mid"], "classical": True},
+    "Golden": {"files": ["Golden.mid"], "classical": False},
+    "Golden_Wind": {"files": ["Golden_Wind.mid"], "classical": False},
+    "Harry_Potter": {"files": ["Hedwigs_Theme.mid"], "classical": False},
+    "Head_Over_Heels": {"files": ["Head_Over_Heels.mid"], "classical": False},
+    "Hey_Jude": {"files": ["Hey_Jude.mid"], "classical": False},
+    "Homem_Aranha_1900": {"files": ["Spider_Man_Theme.mid"], "classical": False},
+    "Imperial_March": {"files": ["The_Imperial_March.mid", "Star_Wars_Main_Theme.mid"], "classical": False},
+    "Interestelar": {"files": ["Interstelar_Main_Theme.mid"], "classical": False},
     "Jump_Up_Super_Star": {
         "files": [
             "Super Mario Odyssey - Jump Up Super Star.mid.mid",
@@ -556,6 +571,16 @@ SONG_CONFIG: Dict[str, Dict] = {
         ],
         "classical": False,
     },
+    "Korobeiniki": {"files": ["Korobeiniki.mid"], "classical": False},
+    "Magnetic": {
+        "files": ["Magnetic.mid", "Magnetic ILLIT full version (not done).mid"],
+        "classical": False,
+    },
+    "Mario": {"files": ["Super_Mario_Bros_Theme.mid"], "classical": False},
+    "Minecraft_Sweden": {"files": ["Sweden.mid"], "classical": False},
+    "Moonlight_Sonata_3mvt": {"files": ["Moonlight_Sonata_3rd_Movement.mid"], "classical": True},
+    "Morning_Flower": {"files": ["Morning_Flower.mid"], "classical": False},
+    "Never_Gonna_Give_You_Up": {"files": ["Never_Gonna_Give_You_Up.mid"], "classical": False},
     "New_Donk_City": {
         "files": [
             "[COMPLETE] New Donk City (Super Mario Odyssey).mid",
@@ -565,12 +590,25 @@ SONG_CONFIG: Dict[str, Dict] = {
         "channels": [2],
         "classical": False,
     },
+    "Numb": {"files": ["Numb.mid"], "classical": False},
+    "Pink_Panther": {"files": ["Pink_Panther_Theme.mid"], "classical": False},
+    "Radio_Ga_Ga": {"files": ["Radio_Ga_Ga.mid"], "classical": False},
+    "Sadness_And_Sorrow": {"files": ["Sadness_and_Sorrow.mid"], "classical": False},
+    "Sweet_Child_O_Mine": {"files": ["Sweet_Child_O_Mine.mid"], "classical": False},
+    "Take_On_Me": {"files": ["Take_on_Me.mid"], "classical": False},
+    "Undertale_Megalovania": {"files": ["MEGALOVANIA.mid", "Shop_Undertale.mid"], "classical": False},
+    "We_Are_Number_One": {"files": ["We_Are_Number_One.mid"], "classical": False},
+    "When_Love_Takes_Over": {"files": ["When_Love_Takes_Over.mid"], "classical": False},
     "Wii_Sports": {
         "files": [
             "Wii Sports Title Screen.mid",
             "Wii_Sports.mid",
         ],
         "exclude_channels": [0, 7, 9, 11, 12],
+        "classical": False,
+    },
+    "Zelda_Lost_Woods": {
+        "files": ["Lost_Woods.mid", "Song_of_Storms.mid"],
         "classical": False,
     },
 }

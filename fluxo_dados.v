@@ -198,7 +198,8 @@ module fluxo_dados #(
 
   wire s_modo_released = (!s_modo_pressed && r_modo_prev_reg);
 
-  localparam [25:0] CiclosDisplayVol = 125 * CiclosTick8ms;
+  localparam [31:0] CiclosDisplayVolFull = 125 * CiclosTick8ms;
+  localparam [25:0] CiclosDisplayVol     = CiclosDisplayVolFull[25:0];
 
   reg        combo_ativo_reg;
   reg [2:0]  estado_vol_reg;
@@ -375,6 +376,7 @@ module fluxo_dados #(
   sync_rom #(
     .DataWidth(30),
     .AddrWidth(RomAddrWidth),
+    .Depth    (13278),
     .InitFile ("music/partituras.hex"),
     .HexMode  (1)
   ) sync_rom_partituras (

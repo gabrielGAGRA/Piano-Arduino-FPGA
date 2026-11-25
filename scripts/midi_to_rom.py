@@ -1,25 +1,28 @@
 """
-Pré-processador de arquivos MIDI (.mid) para memórias ROM de 30 bits x 1024 palavras
-do Piano FPGA (Modo Aprendizado e Modo Demonstração).
+Versão simples do conversor de MIDI (.mid) para ROM de 30 bits do Piano FPGA.
 
-Formato de cada palavra de 30 bits (em binário ASCII ou hex, 1024 linhas por arquivo):
-  - bits [29:22] (8 bits): PAUSA após a nota em ticks de 8 ms (0..255)
-  - bits [21:14] (8 bits): DURACAO da nota (incluindo extensão de pedal sustain) em ticks de 8 ms (1..255)
-  - bits [13:7]  (7 bits): VELOCITY MIDI (1..127)
-  - bits [6:0]   (7 bits): NOTA_MIDI (24..107, ou 0 para fim_musica)
+Regras de seleção:
+- Mantém estritamente uma nota por vez (monofônico), escolhendo o canal pela nota mais aguda.
+- Se houver qualquer overlap entre notas (de oitavas ou canais diferentes), mantém a mais aguda
+  e descarta a outra.
+- Só troca de canal para um canal mais grave se o canal atual ficar em silêncio por mais de
+  1.0 segundo e o outro canal tiver pelo menos 2.0 segundos e 2 notas válidas nessa janela
+  antes de voltar a um canal mais agudo; se um canal mais agudo voltar a tocar, retorna na hora.
 """
 
 import argparse
 import os
-import shutil
 import struct
 from typing import Dict, List, Optional, Tuple
 
 TICK_SECONDS = 0.008
 ROM_DEPTH = 1024
 MAX_NOTES = ROM_DEPTH - 1  # Reserva pelo menos o último endereço com 30'd0 (fim_musica)
-CHORD_WINDOW_S = 0.024     # Janela de 24 ms para agrupar acordes simultâneos
-MIN_PLAYABLE_IOI_S = 0.095 # Limite mínimo para evitar notas que se atropelam no ritmo pop
+
+OVERLAP_EPS_S = 0.004       # Tolerância de 4 ms (< 1 tick) para bordas encostadas
+SILENCE_SWITCH_S = 1.0      # Mínimo de silêncio (s) para trocar para canal mais grave
+MIN_SWITCH_DURATION_S = 2.0 # Mínimo de duração (s) no outro canal para validar a troca
+MIN_SWITCH_NOTES = 2        # Mínimo de notas no outro canal para validar a troca
 
 
 def _read_varlen(data: bytes, idx: int) -> Tuple[int, int]:
@@ -52,7 +55,7 @@ def parse_smf_events(
         raise ValueError(f"Arquivo MIDI inválido (cabeçalho MThd ausente): {midi_path}")
 
     hdr_len = struct.unpack(">I", data[4:8])[0]
-    fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
+    _fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
     if division & 0x8000:
         raise ValueError("Divisão SMPTE não suportada; esperado ticks_per_beat.")
     ticks_per_beat = division
@@ -105,7 +108,6 @@ def parse_smf_events(
                 high = status & 0xF0
                 ch = status & 0x0F
 
-                # Filtro de canais: ignora percussão e restringe a canais permitidos
                 if ignore_drums and ch == 9:
                     idx += 1 if high in (0xC0, 0xD0) else 2
                     continue
@@ -122,12 +124,17 @@ def parse_smf_events(
                     p1 = trk_data[idx]
                     p2 = trk_data[idx + 1]
                     idx += 2
-                    if high == 0x90 and p2 > 0:
-                        raw_events.append(
-                            (abs_tick, seq_counter, {"type": "note_on", "ch": ch, "note": p1, "vel": p2})
-                        )
+                    if high == 0x90:
+                        if p2 == 0:
+                            raw_events.append(
+                                (abs_tick, seq_counter, {"type": "note_off", "ch": ch, "note": p1, "vel": 0})
+                            )
+                        else:
+                            raw_events.append(
+                                (abs_tick, seq_counter, {"type": "note_on", "ch": ch, "note": p1, "vel": p2})
+                            )
                         seq_counter += 1
-                    elif high == 0x80 or (high == 0x90 and p2 == 0):
+                    elif high == 0x80:
                         raw_events.append(
                             (abs_tick, seq_counter, {"type": "note_off", "ch": ch, "note": p1, "vel": p2})
                         )
@@ -140,8 +147,7 @@ def parse_smf_events(
 
     raw_events.sort(key=lambda item: (item[0], item[1]))
 
-    # Converte ticks acumulados em segundos integrando mudanças de andamento (Set Tempo)
-    tempo_us = 500_000  # 120 BPM padrão inicial
+    tempo_us = 500_000
     last_tick = 0
     current_time_s = 0.0
     timed_events: List[Dict] = []
@@ -227,7 +233,6 @@ def extract_sustained_notes(timed_events: List[Dict]) -> List[Dict]:
                     nobj["t_end_effective"] = t
                     completed_notes.append(nobj)
 
-    # Fecha eventuais notas residuais no final do arquivo
     last_t = timed_events[-1]["time_s"] if timed_events else 0.0
     for stack in active_keys.values():
         for nobj in stack:
@@ -240,209 +245,6 @@ def extract_sustained_notes(timed_events: List[Dict]) -> List[Dict]:
 
     completed_notes.sort(key=lambda n: (n["t_start"], n["note"]))
     return completed_notes
-
-
-def select_monophonic_melody(notes: List[Dict], max_notes: int = MAX_NOTES) -> List[Dict]:
-    """
-    Agrupa notas quase simultâneas (dentro de CHORD_WINDOW_S = 24 ms) como acordes e
-    seleciona a nota mais aguda de cada ataque como voz principal da melodia.
-    """
-    if not notes:
-        return []
-
-    melody: List[Dict] = []
-    cluster: List[Dict] = [notes[0]]
-
-    for n in notes[1:]:
-        if (n["t_start"] - cluster[0]["t_start"]) < CHORD_WINDOW_S:
-            cluster.append(n)
-        else:
-            best = max(cluster, key=lambda item: (item["note"], item["vel"]))
-            melody.append(best)
-            if len(melody) >= max_notes:
-                cluster = []
-                break
-            cluster = [n]
-
-    if cluster and len(melody) < max_notes:
-        best = max(cluster, key=lambda item: (item["note"], item["vel"]))
-        melody.append(best)
-
-    return melody[:max_notes]
-
-
-def filter_pop_melody(
-    notes: List[Dict],
-    min_ioi_s: float = MIN_PLAYABLE_IOI_S,
-    max_notes: int = MAX_NOTES,
-) -> List[Dict]:
-    """
-    Filtra notas de acompanhamento/baixo e notas sobrepostas para extrair
-    apenas a melodia principal tocável em estilo pop:
-    1. Agrupa acordes simultâneos (24 ms) e escolhe a nota mais aguda.
-    2. Descarta notas de contratempo que iniciam sob sustentação de nota melódica mais aguda (held-note masking).
-    3. Descarta notas no registro grave de baixo (< 50 quando o registro melódico é superior).
-    4. Anti-atropelo rítmico: quando notas se atropelam (< min_ioi_s), mantém a nota estrutural mais longa/forte.
-    """
-    if not notes:
-        return []
-
-    # 1. Agrupamento em acordes simultâneos e extração de skyline
-    clusters: List[List[Dict]] = []
-    for n in notes:
-        if clusters and (n["t_start"] - clusters[-1][0]["t_start"]) < CHORD_WINDOW_S:
-            clusters[-1].append(n)
-        else:
-            clusters.append([n])
-
-    skyline = [max(c, key=lambda x: (x["note"], x["vel"])) for c in clusters]
-
-    # Mediana do skyline superior para detectar registro melódico vs baixo
-    pitches = sorted([n["note"] for n in skyline])
-    median_pitch = pitches[len(pitches) // 2] if pitches else 60
-
-    # 2 e 3. Held-note masking + Filtro de linha de baixo
-    filtered: List[Dict] = []
-    active_high: Optional[Dict] = None
-
-    for n in skyline:
-        # Mascaramento por nota sustentada
-        if active_high is not None and n["t_start"] < (active_high["t_end_effective"] - 0.025):
-            if n["note"] < active_high["note"]:
-                continue
-
-        # Filtro de baixo em pausas da melodia
-        if median_pitch >= 58:
-            if n["note"] < 50 or (median_pitch - n["note"]) > 16:
-                continue
-
-        filtered.append(dict(n))
-        active_high = n
-
-    # 4. Anti-atropelo rítmico (Playable IOI)
-    cleaned: List[Dict] = []
-    for n in filtered:
-        if not cleaned:
-            cleaned.append(n)
-            continue
-
-        prev = cleaned[-1]
-        dt = n["t_start"] - prev["t_start"]
-
-        if dt < min_ioi_s:
-            # Notas muito próximas: escolhe a nota mais longa ou de maior velocity
-            prev_dur = prev["t_end_effective"] - prev["t_start"]
-            cur_dur = n["t_end_effective"] - n["t_start"]
-            if (cur_dur * n["vel"]) > (prev_dur * prev["vel"]):
-                cleaned[-1] = n
-        else:
-            cleaned.append(n)
-
-        if len(cleaned) >= max_notes:
-            break
-
-    return cleaned[:max_notes]
-
-
-def stabilize_pop_octaves(melody: List[Dict]) -> List[Dict]:
-    """
-    Estabiliza as oitavas da melodia por seção (Viterbi com histerese):
-    1. Transposição ótima (-6..+6 semitons) minimizando trocas de oitava (C..B) e favorecendo notas naturais.
-    2. Programação dinâmica mantendo a nota musical exata (pitch % 12) e penalizando trocas rápidas
-       de oitava em sequências curtas (< 6 notas), evitando saltos constantes de oitava.
-    """
-    if not melody:
-        return melody
-
-    # 1. Transposição ótima consciente de oitava
-    best_shift = 0
-    best_score = -1e9
-
-    for shift in range(-6, 7):
-        shifted_pitches = [n["note"] + shift for n in melody]
-        nats = sum(1 for p in shifted_pitches if (p % 12) in (0, 2, 4, 5, 7, 9, 11))
-        oct_crossings = sum(
-            1 for i in range(len(shifted_pitches) - 1)
-            if (shifted_pitches[i] // 12) != (shifted_pitches[i + 1] // 12)
-        )
-        # Score ponderado: prioriza reduzir trocas de oitava mantendo boa tocabilidade
-        score = (nats * 1.0) - (oct_crossings * 2.5)
-        if score > best_score:
-            best_score = score
-            best_shift = shift
-
-    # Transpõe por oitavas inteiras para centrar na Oitava 4 (60..71)
-    shifted_notes = [n["note"] + best_shift for n in melody]
-    mean_pitch = sum(shifted_notes) / len(shifted_notes)
-    octave_shift = 0
-    while (mean_pitch + octave_shift) < 60:
-        octave_shift += 12
-    while (mean_pitch + octave_shift) > 71:
-        octave_shift -= 12
-    total_shift = best_shift + octave_shift
-
-    pre_transposed = []
-    for n in melody:
-        nc = dict(n)
-        nc["note"] = clamp_midi_note(n["note"] + total_shift)
-        pre_transposed.append(nc)
-
-    # 2. Viterbi com Histerese de Oitava
-    K = 6  # Mínimo de notas na mesma oitava antes de tolerar mudança confortável
-    octaves = [3, 4, 5, 6, 7]
-    INF = 1e18
-
-    dp = {(o, r): INF for o in octaves for r in range(1, K + 1)}
-    parent: Dict[Tuple[int, int, int], Tuple[int, int]] = {}
-
-    p0 = pre_transposed[0]["note"]
-    pc0 = p0 % 12
-    for o in octaves:
-        cand_p = o * 12 + pc0
-        dp[(o, 1)] = (abs(cand_p - p0) / 12.0) * 1.5
-
-    for i in range(1, len(pre_transposed)):
-        p = pre_transposed[i]["note"]
-        pc = p % 12
-        new_dp = {(o, r): INF for o in octaves for r in range(1, K + 1)}
-
-        for o_prev in octaves:
-            for r_prev in range(1, K + 1):
-                cost_prev = dp[(o_prev, r_prev)]
-                if cost_prev >= INF:
-                    continue
-                for o_cur in octaves:
-                    p_cur = o_cur * 12 + pc
-                    c_emit = (abs(p_cur - p) / 12.0) * 1.2 + (abs(o_cur - 5) * 0.15)
-                    if o_cur == o_prev:
-                        r_cur = min(K, r_prev + 1)
-                        c_trans = 0.0
-                    else:
-                        r_cur = 1
-                        short_run_penalty = 8.0 if r_prev < K else 0.0
-                        c_trans = 3.5 + short_run_penalty + abs(o_cur - o_prev) * 1.0
-
-                    total = cost_prev + c_emit + c_trans
-                    if total < new_dp[(o_cur, r_cur)]:
-                        new_dp[(o_cur, r_cur)] = total
-                        parent[(i, o_cur, r_cur)] = (o_prev, r_prev)
-        dp = new_dp
-
-    best_state = min(dp, key=lambda k: dp[k])
-    path_oct = [0] * len(pre_transposed)
-    cur_o, cur_r = best_state
-    for i in range(len(pre_transposed) - 1, -1, -1):
-        path_oct[i] = cur_o
-        if i > 0:
-            cur_o, cur_r = parent[(i, cur_o, cur_r)]
-
-    stabilized_melody: List[Dict] = []
-    for i, n in enumerate(pre_transposed):
-        nc = dict(n)
-        nc["note"] = clamp_midi_note(path_oct[i] * 12 + (n["note"] % 12))
-        stabilized_melody.append(nc)
-
-    return stabilized_melody
 
 
 def optimize_transposition_for_7_keys(melody: List[Dict]) -> List[Dict]:
@@ -496,313 +298,6 @@ def encode_rom_word_hex(pausa_ticks: int, dur_ticks: int, velocity: int, note_mi
     return f"{val:08x}"
 
 
-SONG_CATALOG = [
-    "Axel_F",                  # 0
-    "Bad_Romance",             # 1
-    "Beat_It",                 # 2
-    "Careless_Whisper",        # 3
-    "Clair_de_Lune",           # 4
-    "Clocks",                  # 5
-    "Do_Re_Mi_Fa",             # 6
-    "Epitafio",                # 7
-    "Fukashigi_No_Carte",      # 8
-    "Fur_Elise",               # 9
-    "Golden",                  # 10
-    "Golden_Wind",             # 11
-    "Harry_Potter",            # 12
-    "Head_Over_Heels",         # 13
-    "Hey_Jude",                # 14
-    "Homem_Aranha_1900",       # 15
-    "Imperial_March",          # 16
-    "Interestelar",            # 17
-    "Jump_Up_Super_Star",      # 18
-    "Korobeiniki",             # 19
-    "Lugar_Ao_Sol",            # 20
-    "Magnetic",                # 21
-    "Mario",                   # 22
-    "Minecraft_Sweden",        # 23
-    "Moonlight_Sonata_3mvt",   # 24
-    "Morning_Flower",          # 25
-    "Never_Gonna_Give_You_Up", # 26
-    "New_Donk_City",           # 27
-    "Numb",                    # 28
-    "Pink_Panther",            # 29
-    "Radio_Ga_Ga",             # 30
-    "Sadness_And_Sorrow",      # 31
-    "Super_Idol",              # 32
-    "Susanne",                 # 33
-    "Sweet_Child_O_Mine",      # 34
-    "Take_On_Me",              # 35
-    "Trem_Das_Onze",           # 36
-    "Undertale_Megalovania",   # 37
-    "We_Are_Number_One",       # 38
-    "When_Love_Takes_Over",    # 39
-    "Wii_Sports",              # 40
-    "Zelda_Lost_Woods",        # 41
-]
-
-# Configuração com parâmetro classical obrigatório para cada música
-SONG_CONFIG: Dict[str, Dict] = {
-    "Axel_F": {"files": ["Axel_F.mid"], "classical": False},
-    "Bad_Romance": {"files": ["Bad_Romance.mid"], "classical": False},
-    "Beat_It": {"files": ["Beat_It.mid"], "classical": False},
-    "Careless_Whisper": {"files": ["Careless_Whisper.mid"], "classical": False},
-    "Clair_de_Lune": {
-        "files": ["Clair_de_Lune.mid", "debussy-clair-de-lune.mid"],
-        "channels": [0],
-        "classical": True,
-    },
-    "Clocks": {"files": ["Clocks.mid"], "classical": False},
-    "Fukashigi_No_Carte": {"files": ["Fukashigi_no_Carte.mid"], "classical": False},
-    "Fur_Elise": {"files": ["Fur_Elise.mid"], "classical": True},
-    "Golden": {"files": ["Golden.mid"], "classical": False},
-    "Golden_Wind": {"files": ["Golden_Wind.mid"], "classical": False},
-    "Harry_Potter": {"files": ["Hedwigs_Theme.mid"], "classical": False},
-    "Head_Over_Heels": {"files": ["Head_Over_Heels.mid"], "classical": False},
-    "Hey_Jude": {"files": ["Hey_Jude.mid"], "classical": False},
-    "Homem_Aranha_1900": {"files": ["Spider_Man_Theme.mid"], "classical": False},
-    "Imperial_March": {"files": ["The_Imperial_March.mid", "Star_Wars_Main_Theme.mid"], "classical": False},
-    "Interestelar": {"files": ["Interstelar_Main_Theme.mid"], "classical": False},
-    "Jump_Up_Super_Star": {
-        "files": [
-            "Super Mario Odyssey - Jump Up Super Star.mid.mid",
-            "Super Mario Odyssey - Jump Up Super Star.mid",
-            "Jump_Up_Super_Star.mid",
-        ],
-        "classical": False,
-    },
-    "Korobeiniki": {"files": ["Korobeiniki.mid"], "classical": False},
-    "Magnetic": {
-        "files": ["Magnetic.mid", "Magnetic ILLIT full version (not done).mid"],
-        "classical": False,
-    },
-    "Mario": {"files": ["Super_Mario_Bros_Theme.mid"], "classical": False},
-    "Minecraft_Sweden": {"files": ["Sweden.mid"], "classical": False},
-    "Moonlight_Sonata_3mvt": {"files": ["Moonlight_Sonata_3rd_Movement.mid"], "classical": True},
-    "Morning_Flower": {"files": ["Morning_Flower.mid"], "classical": False},
-    "Never_Gonna_Give_You_Up": {"files": ["Never_Gonna_Give_You_Up.mid"], "classical": False},
-    "New_Donk_City": {
-        "files": [
-            "[COMPLETE] New Donk City (Super Mario Odyssey).mid",
-            "New Donk City.mid",
-            "New_Donk_City.mid",
-        ],
-        "channels": [2],
-        "classical": False,
-    },
-    "Numb": {"files": ["Numb.mid"], "classical": False},
-    "Pink_Panther": {"files": ["Pink_Panther_Theme.mid"], "classical": False},
-    "Radio_Ga_Ga": {"files": ["Radio_Ga_Ga.mid"], "classical": False},
-    "Sadness_And_Sorrow": {"files": ["Sadness_and_Sorrow.mid"], "classical": False},
-    "Sweet_Child_O_Mine": {"files": ["Sweet_Child_O_Mine.mid"], "classical": False},
-    "Take_On_Me": {"files": ["Take_on_Me.mid"], "classical": False},
-    "Undertale_Megalovania": {"files": ["MEGALOVANIA.mid", "Shop_Undertale.mid"], "classical": False},
-    "We_Are_Number_One": {"files": ["We_Are_Number_One.mid"], "classical": False},
-    "When_Love_Takes_Over": {"files": ["When_Love_Takes_Over.mid"], "classical": False},
-    "Wii_Sports": {
-        "files": [
-            "Wii Sports Title Screen.mid",
-            "Wii_Sports.mid",
-        ],
-        "exclude_channels": [0, 7, 9, 11, 12],
-        "classical": False,
-    },
-    "Zelda_Lost_Woods": {
-        "files": ["Lost_Woods.mid", "Song_of_Storms.mid"],
-        "classical": False,
-    },
-}
-
-
-def extract_melody_words(
-    midi_path: str,
-    classical: bool,
-    as_hex: bool = True,
-    allowed_channels: Optional[List[int]] = None,
-    exclude_channels: Optional[List[int]] = None,
-) -> List[str]:
-    """Extrai as palavras codificadas da melodia respeitando o modo classical (pop vs clássico)."""
-    if classical is None:
-        raise ValueError("O parâmetro 'classical' é obrigatório (True ou False).")
-
-    timed_events = parse_smf_events(
-        midi_path,
-        allowed_channels=allowed_channels,
-        exclude_channels=exclude_channels,
-        ignore_drums=True,
-    )
-    sustained_notes = extract_sustained_notes(timed_events)
-
-    if classical:
-        # Modo clássico: não remove notas, preserva skyline puro e afinação
-        melody = select_monophonic_melody(sustained_notes, max_notes=MAX_NOTES)
-        melody = optimize_transposition_for_7_keys(melody)
-    else:
-        # Modo pop: extração da voz principal, remoção de acompanhamento/baixo, anti-atropelo e estabilização de oitavas
-        melody = filter_pop_melody(sustained_notes, min_ioi_s=MIN_PLAYABLE_IOI_S, max_notes=MAX_NOTES)
-        melody = stabilize_pop_octaves(melody)
-
-    words: List[str] = []
-    for i, n in enumerate(melody):
-        t_start = n["t_start"]
-        raw_sustain_dur = max(TICK_SECONDS, n["t_end_effective"] - t_start)
-
-        if i + 1 < len(melody):
-            delta_t = max(TICK_SECONDS, melody[i + 1]["t_start"] - t_start)
-            dur_s = min(raw_sustain_dur, delta_t)
-            pausa_s = max(0.0, delta_t - dur_s)
-        else:
-            dur_s = raw_sustain_dur
-            pausa_s = 0.0
-
-        dur_ticks = max(1, min(255, int(round(dur_s / TICK_SECONDS))))
-        pausa_ticks = max(0, min(255, int(round(pausa_s / TICK_SECONDS))))
-        vel = max(1, min(127, n["vel"]))
-        note_midi = clamp_midi_note(n["note"])
-
-        if as_hex:
-            words.append(encode_rom_word_hex(pausa_ticks, dur_ticks, vel, note_midi))
-        else:
-            words.append(encode_rom_word(pausa_ticks, dur_ticks, vel, note_midi))
-
-    return words
-
-
-def generate_scale_words(as_hex: bool = True) -> List[str]:
-    """Gera palavras da escala Dó Maior (C4..B4) sem padding."""
-    scale_notes = [60, 62, 64, 65, 67, 69, 71]
-    if as_hex:
-        return [encode_rom_word_hex(pausa_ticks=5, dur_ticks=40, velocity=100, note_midi=n) for n in scale_notes]
-    return [encode_rom_word(pausa_ticks=5, dur_ticks=40, velocity=100, note_midi=n) for n in scale_notes]
-
-
-def build_mega_rom(
-    music_dir: str = "music",
-    verilog_out_dir: str = ".",
-    addr_width: int = 14,
-) -> Tuple[str, str]:
-    """
-    Constrói a Mega-ROM contígua `music/partituras.hex` e gera o módulo
-    Verilog `tabela_offsets_partituras.v`.
-    """
-    sentinel_hex = "00000000"
-    rom_words: List[str] = [sentinel_hex]  # Endereço 0 é sentinela para slots vazios
-    offsets: Dict[int, int] = {}
-
-    sub_mid_dir = os.path.join(music_dir, ".mid")
-
-    for idx, song_name in enumerate(SONG_CATALOG):
-        song_words: List[str] = []
-        cfg = SONG_CONFIG.get(song_name, {})
-        allowed_channels = cfg.get("channels", None)
-        exclude_channels = cfg.get("exclude_channels", None)
-        classical = cfg.get("classical", None)
-
-        file_names = cfg.get("files", [f"{song_name}.mid", f"{song_name.lower()}.mid"])
-        midi_candidates = []
-        for fn in file_names:
-            midi_candidates.append(os.path.join(music_dir, fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, "original", fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, "1-canal", fn))
-
-        found_midi = next((c for c in midi_candidates if os.path.exists(c)), None)
-
-        if found_midi:
-            if classical is None:
-                raise ValueError(
-                    f"Música '{song_name}' encontrada em {found_midi}, mas o parâmetro 'classical' não foi definido!"
-                )
-            song_words = extract_melody_words(
-                found_midi,
-                classical=classical,
-                as_hex=True,
-                allowed_channels=allowed_channels,
-                exclude_channels=exclude_channels,
-            )
-        elif song_name == "Do_Re_Mi_Fa":
-            song_words = generate_scale_words(as_hex=True)
-
-        if song_words:
-            start_addr = len(rom_words)
-            offsets[idx] = start_addr
-            rom_words.extend(song_words)
-            rom_words.append(sentinel_hex)
-        else:
-            offsets[idx] = 0
-
-    hex_path = os.path.join(music_dir, "partituras.hex")
-    with open(hex_path, "w", encoding="ascii", newline="\n") as f:
-        for w in rom_words:
-            f.write(f"{w}\n")
-
-    verilog_path = os.path.join(verilog_out_dir, "tabela_offsets_partituras.v")
-    lines_v = [
-        "// Descricao: Tabela combinacional de offsets de partituras para a Mega-ROM.",
-        f"// Funcionamento: Mapeia o indice da musica (0..{len(SONG_CATALOG)-1}) no endereco base dentro da Mega-ROM.",
-        "",
-        "`timescale 1ns / 1ps",
-        "`default_nettype none",
-        "",
-        "module tabela_offsets_partituras #(",
-        f"  parameter AddrWidth = {addr_width}",
-        ")(",
-        "  input  wire [5:0]           musica_id,",
-        "  output reg  [AddrWidth-1:0] base_addr",
-        ");",
-        "",
-        "  always @* begin",
-        "    base_addr = {AddrWidth{1'b0}};",
-        "    case (musica_id)",
-    ]
-
-    for idx, song_name in enumerate(SONG_CATALOG):
-        base_addr = offsets.get(idx, 0)
-        lines_v.append(f"      6'd{idx}: base_addr = {addr_width}'d{base_addr}; // {song_name}")
-
-    lines_v.extend([
-        "      default: base_addr = {AddrWidth{1'b0}};",
-        "    endcase",
-        "  end",
-        "",
-        "endmodule",
-        "",
-        "`default_nettype wire",
-        "",
-    ])
-
-    with open(verilog_path, "w", encoding="ascii", newline="\n") as f:
-        f.write("\n".join(lines_v))
-
-    return hex_path, verilog_path
-
-
-def convert_midi_to_rom_lines(
-    midi_path: str,
-    classical: bool,
-    allowed_channels: Optional[List[int]] = None,
-    exclude_channels: Optional[List[int]] = None,
-    as_hex: bool = False,
-) -> List[str]:
-    """Converte um arquivo `.mid` nas linhas (binário ou hex) de 30 bits com sentinela."""
-    words = extract_melody_words(
-        midi_path,
-        classical=classical,
-        as_hex=as_hex,
-        allowed_channels=allowed_channels,
-        exclude_channels=exclude_channels,
-    )
-    sentinel = "00000000" if as_hex else ("0" * 30)
-    return words + [sentinel]
-
-
-def generate_scale_rom_lines(as_hex: bool = False) -> List[str]:
-    """Gera uma escala Dó Maior (C4..B4) de 30 bits para `Do_Re_Mi_Fa.txt` com sentinela."""
-    scale_words = generate_scale_words(as_hex=as_hex)
-    sentinel = "00000000" if as_hex else ("0" * 30)
-    return scale_words + [sentinel]
-
-
 def write_rom_file(path: str, lines: List[str]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="ascii", newline="\n") as f:
@@ -813,7 +308,7 @@ def write_rom_file(path: str, lines: List[str]) -> None:
 def words_to_midi(words: List[str], out_mid_path: str) -> None:
     """Exporta uma lista de palavras de 30 bits de volta para um arquivo Standard MIDI File (.mid) tocável."""
     events = bytearray()
-    events += b'\x00\xFF\x51\x03\x0F\x42\x40'
+    events += b"\x00\xFF\x51\x03\x0F\x42\x40"
 
     def write_vlq(delta: int) -> None:
         buf = bytearray()
@@ -843,126 +338,308 @@ def words_to_midi(words: List[str], out_mid_path: str) -> None:
         pending_delta = pausa
 
     write_vlq(pending_delta)
-    events += b'\xFF\x2F\x00'
+    events += b"\xFF\x2F\x00"
 
-    header = struct.pack('>4sIHHH', b'MThd', 6, 0, 1, 125)
-    track = struct.pack('>4sI', b'MTrk', len(events)) + events
+    header = struct.pack(">4sIHHH", b"MThd", 6, 0, 1, 125)
+    track = struct.pack(">4sI", b"MTrk", len(events)) + events
 
     os.makedirs(os.path.dirname(os.path.abspath(out_mid_path)), exist_ok=True)
-    with open(out_mid_path, 'wb') as f:
+    with open(out_mid_path, "wb") as f:
         f.write(header + track)
 
 
-def rom_file_to_midi(txt_path: str, out_mid_path: Optional[str] = None) -> str:
-    """Lê um arquivo .txt de ROM (binário de 30 bits ou hex) e converte de volta para um arquivo .mid tocável."""
-    if out_mid_path is None:
-        base, _ = os.path.splitext(txt_path)
-        out_mid_path = f"{base}_reconvertido.mid"
+def _channel_skyline(notes: List[Dict], overlap_eps: float) -> List[Dict]:
+    """Remove overlaps internos de um único canal mantendo sempre a nota mais aguda."""
+    prioritized = sorted(notes, key=lambda n: (-n["note"], -n["vel"], n["t_start"]))
+    accepted: List[Dict] = []
+    for cand in prioritized:
+        c_start = cand["t_start"]
+        c_end = max(c_start + TICK_SECONDS, cand["t_end_effective"])
+        has_overlap = any(
+            c_start < (max(acc["t_start"] + TICK_SECONDS, acc["t_end_effective"]) - overlap_eps)
+            and c_end > (acc["t_start"] + overlap_eps)
+            for acc in accepted
+        )
+        if not has_overlap:
+            accepted.append(dict(cand))
+    accepted.sort(key=lambda n: (n["t_start"], n["note"]))
+    return accepted
 
-    with open(txt_path, "r", encoding="ascii") as f:
-        lines = [line.strip() for line in f if line.strip()]
 
-    words_to_midi(lines, out_mid_path)
-    return out_mid_path
+def _has_overlap(a: Dict, b: Dict, overlap_eps: float) -> bool:
+    a_end = max(a["t_start"] + TICK_SECONDS, a["t_end_effective"])
+    b_end = max(b["t_start"] + TICK_SECONDS, b["t_end_effective"])
+    return a["t_start"] < (b_end - overlap_eps) and a_end > (b["t_start"] + overlap_eps)
+
+
+def select_highest_no_overlap(
+    notes: List[Dict],
+    max_notes: int = MAX_NOTES,
+    overlap_eps: float = OVERLAP_EPS_S,
+    silence_threshold_s: float = SILENCE_SWITCH_S,
+    min_switch_duration_s: float = MIN_SWITCH_DURATION_S,
+    min_switch_notes: int = MIN_SWITCH_NOTES,
+) -> List[Dict]:
+    """
+    Seleciona uma voz monofônica sem overlaps priorizando o canal com a nota mais aguda
+    e aplicando histerese de >1s de silêncio + mínimo de 2s e 2 notas no outro canal
+    antes de descer a um canal mais grave.
+    """
+    if not notes:
+        return []
+
+    by_ch: Dict[int, List[Dict]] = {}
+    for n in notes:
+        by_ch.setdefault(n["ch"], []).append(n)
+
+    ch_lists: Dict[int, List[Dict]] = {
+        ch: _channel_skyline(ch_notes, overlap_eps) for ch, ch_notes in by_ch.items()
+    }
+    idx: Dict[int, int] = {ch: 0 for ch in ch_lists}
+
+    def peek(ch: int) -> Optional[Dict]:
+        i = idx[ch]
+        lst = ch_lists[ch]
+        return lst[i] if i < len(lst) else None
+
+    def advance_past(ch: int, t_limit: float) -> None:
+        lst = ch_lists[ch]
+        while idx[ch] < len(lst) and lst[idx[ch]]["t_start"] < t_limit - overlap_eps:
+            idx[ch] += 1
+
+    # Escolhe nota inicial mais aguda entre as primeiras disponíveis
+    first_cands = [peek(ch) for ch in ch_lists if peek(ch) is not None]
+    if not first_cands:
+        return []
+    earliest_t = min(c["t_start"] for c in first_cands)
+    # Considera notas que começam junto ou em overlap com a mais cedo
+    first_pool = [
+        c for c in first_cands
+        if c["t_start"] <= earliest_t + overlap_eps
+        or any(_has_overlap(c, o, overlap_eps) for o in first_cands if o["t_start"] <= earliest_t + overlap_eps)
+    ]
+    first_note = max(first_pool, key=lambda n: (n["note"], n["vel"], -n["t_start"]))
+
+    selected: List[Dict] = [dict(first_note)]
+    active_ch = first_note["ch"]
+    idx[active_ch] += 1
+
+    while len(selected) < max_notes:
+        last = selected[-1]
+        last_end = max(last["t_start"] + TICK_SECONDS, last["t_end_effective"])
+
+        # Avança outros canais apenas além de notas já ultrapassadas sem overlap
+        for ch in list(ch_lists.keys()):
+            if ch != active_ch:
+                while idx[ch] < len(ch_lists[ch]):
+                    cand = ch_lists[ch][idx[ch]]
+                    if cand["t_start"] < last["t_start"] - overlap_eps:
+                        idx[ch] += 1
+                    elif _has_overlap(cand, last, overlap_eps) and cand["note"] <= last["note"]:
+                        idx[ch] += 1
+                    else:
+                        break
+
+        # 1. Verifica se algum outro canal interrompe com nota mais aguda em overlap com `last`
+        interrupt_cands = []
+        for ch in ch_lists:
+            if ch == active_ch:
+                continue
+            c = peek(ch)
+            if c is not None and _has_overlap(c, last, overlap_eps) and c["note"] > last["note"]:
+                interrupt_cands.append(c)
+
+        if interrupt_cands:
+            best = max(interrupt_cands, key=lambda n: (n["note"], n["vel"], -n["t_start"]))
+            selected[-1] = dict(best)
+            active_ch = best["ch"]
+            idx[active_ch] += 1
+            continue
+
+        # 2. Próxima nota do canal ativo
+        next_act = peek(active_ch)
+        next_act_t = next_act["t_start"] if next_act is not None else float("inf")
+
+        # 3. Durante o silêncio de active_ch [last_end, next_act_t], verifica se outro canal
+        #    tem nota mais aguda que last["note"] (sobe/volta na hora)
+        higher_cands = []
+        for ch in ch_lists:
+            if ch == active_ch:
+                continue
+            c = peek(ch)
+            if c is not None and c["t_start"] < next_act_t - overlap_eps and c["note"] > last["note"]:
+                if not _has_overlap(c, last, overlap_eps):
+                    higher_cands.append(c)
+
+        if higher_cands:
+            # Pega a que chega mais cedo (em empate, a mais aguda)
+            best = min(higher_cands, key=lambda n: (n["t_start"], -n["note"], -n["vel"]))
+            # Se tiver overlap com a volta do canal ativo e for mais grave que ela, descarta
+            if next_act is not None and _has_overlap(best, next_act, overlap_eps) and next_act["note"] >= best["note"]:
+                idx[best["ch"]] += 1
+                continue
+            selected.append(dict(best))
+            active_ch = best["ch"]
+            idx[active_ch] += 1
+            continue
+
+        # 4. Troca para canal mais grave só se silêncio > 1.0s E >= 2.0s E >= 2 notas válidas na janela
+        #    (antes de voltar para active_ch ou qualquer canal mais agudo)
+        silence_dur = next_act_t - last_end
+        if silence_dur > silence_threshold_s:
+            best_lower_ch = None
+            best_lower_score = None
+            for ch in ch_lists:
+                if ch == active_ch:
+                    continue
+                # Encontra a primeira nota em outro canal que seja mais aguda que as do candidato
+                # ou que o último pitch do canal ativo, limitando a janela antes de subir de novo
+                valid_in_gap = []
+                j = idx[ch]
+                while j < len(ch_lists[ch]):
+                    cn = ch_lists[ch][j]
+                    if cn["t_start"] >= next_act_t - overlap_eps:
+                        break
+                    if cn["t_start"] >= last_end - overlap_eps and not _has_overlap(cn, last, overlap_eps):
+                        if next_act is not None and _has_overlap(cn, next_act, overlap_eps) and next_act["note"] >= cn["note"]:
+                            j += 1
+                            continue
+                        valid_in_gap.append(cn)
+                    j += 1
+
+                if len(valid_in_gap) >= min_switch_notes:
+                    gap_span = (
+                        max(valid_in_gap[-1]["t_start"] + TICK_SECONDS, valid_in_gap[-1]["t_end_effective"])
+                        - valid_in_gap[0]["t_start"]
+                    )
+                    if gap_span >= min_switch_duration_s - overlap_eps:
+                        score = (max(n["note"] for n in valid_in_gap), -valid_in_gap[0]["t_start"])
+                        if best_lower_score is None or score > best_lower_score:
+                            best_lower_score = score
+                            best_lower_ch = ch
+
+            if best_lower_ch is not None:
+                active_ch = best_lower_ch
+                advance_past(active_ch, last_end)
+                nxt = peek(active_ch)
+                if nxt is not None and not _has_overlap(nxt, last, overlap_eps):
+                    selected.append(dict(nxt))
+                    idx[active_ch] += 1
+                    continue
+
+        # 5. Caso contrário, permanece no canal ativo e avança para sua próxima nota
+        if next_act is None:
+            break
+
+        # Verifica se na volta de next_act existe nota simultânea/overlap ainda mais aguda em outro canal
+        sim_cands = [next_act]
+        for ch in ch_lists:
+            if ch == active_ch:
+                continue
+            c = peek(ch)
+            while c is not None and c["t_start"] < next_act["t_start"] - overlap_eps and not _has_overlap(c, next_act, overlap_eps):
+                idx[ch] += 1
+                c = peek(ch)
+            if c is not None and _has_overlap(c, next_act, overlap_eps):
+                sim_cands.append(c)
+
+        best_next = max(sim_cands, key=lambda n: (n["note"], n["vel"], -n["t_start"]))
+        selected.append(dict(best_next))
+        active_ch = best_next["ch"]
+        idx[active_ch] += 1
+
+    return selected[:max_notes]
+
+
+def convert_midi_simple(
+    midi_path: str,
+    transpose: bool = True,
+    as_hex: bool = False,
+    direct: bool = False,
+) -> List[str]:
+    """Converte um `.mid` para linhas de 30 bits. Com `direct=True`, faz conversão direta sem algoritmo de seleção."""
+    timed_events = parse_smf_events(midi_path, ignore_drums=True)
+    sustained_notes = extract_sustained_notes(timed_events)
+    if direct:
+        melody = sustained_notes[:MAX_NOTES]
+    else:
+        melody = select_highest_no_overlap(sustained_notes, max_notes=MAX_NOTES)
+
+    if transpose and melody:
+        melody = optimize_transposition_for_7_keys(melody)
+
+    lines: List[str] = []
+    for i, n in enumerate(melody):
+        t_start = n["t_start"]
+        raw_sustain_dur = max(TICK_SECONDS, n["t_end_effective"] - t_start)
+
+        if i + 1 < len(melody):
+            delta_t = max(TICK_SECONDS, melody[i + 1]["t_start"] - t_start)
+            dur_s = min(raw_sustain_dur, delta_t)
+            pausa_s = max(0.0, delta_t - dur_s)
+        else:
+            dur_s = raw_sustain_dur
+            pausa_s = 0.0
+
+        dur_ticks = max(1, min(255, int(round(dur_s / TICK_SECONDS))))
+        pausa_ticks = max(0, min(255, int(round(pausa_s / TICK_SECONDS))))
+        vel = max(1, min(127, n["vel"]))
+        note_midi = clamp_midi_note(n["note"])
+
+        if as_hex:
+            lines.append(encode_rom_word_hex(pausa_ticks, dur_ticks, vel, note_midi))
+        else:
+            lines.append(encode_rom_word(pausa_ticks, dur_ticks, vel, note_midi))
+
+    sentinel = "00000000" if as_hex else ("0" * 30)
+    lines.append(sentinel)
+    return lines
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Converte arquivo MIDI (.mid) para ROM de 30 bits do FPGA e vice-versa.")
-    parser.add_argument(
-        "--midi",
-        default=None,
-        help="Caminho de arquivo MIDI de entrada específico (opcional)",
+    parser = argparse.ArgumentParser(
+        description="Conversor simples MIDI -> ROM (canal mais agudo, histerese de 1s + 2s no outro canal)."
     )
-    parser.add_argument(
-        "--classical",
-        type=lambda v: str(v).lower() in ("true", "1", "yes"),
-        default=None,
-        help="Obrigatório se --midi for usado: especifica se o arquivo é clássico (True) ou pop/tocável (False)",
-    )
-    parser.add_argument(
-        "--from-txt",
-        default=None,
-        help="Caminho de arquivo .txt da ROM para converter de volta em arquivo .mid",
-    )
-    parser.add_argument(
-        "--out-mid",
-        default=None,
-        help="Caminho do arquivo .mid de saída ao usar --from-txt (opcional)",
-    )
+    parser.add_argument("midi", help="Caminho do arquivo MIDI (.mid) de entrada")
     parser.add_argument(
         "--out-dir",
         default="music",
-        help="Diretório de saída das memórias ROM (padrão: music)",
+        help="Diretório de saída para o .txt (padrão: music)",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Nome base dos arquivos gerados (padrão: nome do arquivo MIDI)",
+    )
+    parser.add_argument(
+        "--no-transpose",
+        action="store_true",
+        help="Não transpõe a melodia para otimizar teclas naturais/Oitava 4",
+    )
+    parser.add_argument(
+        "--direct",
+        "--direto",
+        action="store_true",
+        help="Conversão direta MIDI -> ROM sem algoritmo de seleção (ideal para músicas só de piano)",
     )
     args = parser.parse_args()
 
-    if args.from_txt is not None:
-        mid_file = rom_file_to_midi(args.from_txt, args.out_mid)
-        print(f"[OK] Convertido ROM '{args.from_txt}' de volta para MIDI: '{mid_file}'")
-        return
+    out_base: str = args.name or os.path.splitext(os.path.basename(args.midi))[0]
+    lines = convert_midi_simple(
+        args.midi,
+        transpose=not args.no_transpose,
+        as_hex=False,
+        direct=args.direct,
+    )
 
-    if args.midi is not None:
-        if args.classical is None:
-            parser.error("O parâmetro --classical (true ou false) é OBRIGATÓRIO ao especificar --midi!")
-        print(f"Convertendo arquivo específico: {args.midi} (classical={args.classical})")
-        lines = convert_midi_to_rom_lines(args.midi, classical=args.classical, as_hex=False)
-        out_base = os.path.splitext(os.path.basename(args.midi))[0]
-        out_txt = os.path.join(args.out_dir, f"{out_base}.txt")
-        write_rom_file(out_txt, lines)
-        out_mid = os.path.join(args.out_dir, ".mid", f"{out_base}_melodia.mid")
-        words_to_midi(lines, out_mid)
-        print(f"[OK] Gerado {out_txt} e {out_mid}")
-        return
+    out_txt = os.path.join(args.out_dir, f"{out_base}.txt")
+    out_mid = os.path.join(args.out_dir, ".mid", f"{out_base}_melodia.mid")
 
-    sub_mid_dir = os.path.join(args.out_dir, ".mid")
+    write_rom_file(out_txt, lines)
+    words_to_midi(lines, out_mid)
 
-    scale_bin = generate_scale_rom_lines(as_hex=False)
-    write_rom_file(os.path.join(args.out_dir, "Do_Re_Mi_Fa.txt"), scale_bin)
-    words_to_midi(scale_bin, os.path.join(sub_mid_dir, "Do_Re_Mi_Fa_escala.mid"))
-
-    converted_individual = []
-
-    for song_name in SONG_CATALOG:
-        cfg = SONG_CONFIG.get(song_name, {})
-        allowed_channels = cfg.get("channels", None)
-        exclude_channels = cfg.get("exclude_channels", None)
-        classical = cfg.get("classical", None)
-
-        file_names = cfg.get("files", [f"{song_name}.mid", f"{song_name.lower()}.mid"])
-        midi_candidates = []
-        for fn in file_names:
-            midi_candidates.append(os.path.join(args.out_dir, fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, "original", fn))
-            midi_candidates.append(os.path.join(sub_mid_dir, "1-canal", fn))
-
-        found_midi = next((c for c in midi_candidates if os.path.exists(c)), None)
-        if found_midi:
-            if classical is None:
-                raise ValueError(
-                    f"Configuração da música '{song_name}' não define o parâmetro obrigatório 'classical'!"
-                )
-            lines_bin = convert_midi_to_rom_lines(
-                found_midi,
-                classical=classical,
-                allowed_channels=allowed_channels,
-                exclude_channels=exclude_channels,
-                as_hex=False,
-            )
-            out_txt = os.path.join(args.out_dir, f"{song_name}.txt")
-            write_rom_file(out_txt, lines_bin)
-            active_cnt = sum(1 for ln in lines_bin if int(ln[-7:], 2) != 0)
-            converted_individual.append((out_txt, active_cnt))
-
-            out_mid = os.path.join(sub_mid_dir, f"{song_name}_melodia.mid")
-            words_to_midi(lines_bin, out_mid)
-
-    hex_path, verilog_path = build_mega_rom(music_dir=args.out_dir, verilog_out_dir=".")
-
-    print(f"[OK] Gerados {len(converted_individual)} arquivos individuais .txt em '{args.out_dir}':")
-    for path, cnt in converted_individual:
-        print(f"  - {os.path.basename(path)} ({cnt} notas ativas)")
-    print(f"[OK] Gerado Mega-ROM: {hex_path} e tabela de offsets: {verilog_path}")
+    active_notes = len(lines) - 1
+    print(f"[OK] Gerado {out_txt} ({active_notes} notas) e prévia em {out_mid}")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
 module sync_rom #(
   parameter DataWidth = 30,
   parameter AddrWidth = 14,
+  parameter Depth     = (1 << AddrWidth),
   parameter InitFile  = "music/partituras.hex",
   parameter HexMode   = 1
 )(
@@ -15,12 +16,13 @@ module sync_rom #(
   output reg  [DataWidth-1:0] data_out
 );
 
-  (* ramstyle = "M10K" *) reg [DataWidth-1:0] rom [0:(2**AddrWidth)-1];
+  localparam RomWordWidth = HexMode ? (((DataWidth + 3) / 4) * 4) : DataWidth;
+  (* ramstyle = "M10K" *) reg [RomWordWidth-1:0] rom [0:Depth-1];
 
   integer i;
   initial begin
-    for (i = 0; (i < (2**AddrWidth)) && (i < 32'd4050); i = i + 1) begin
-      rom[i] = {DataWidth{1'b0}};
+    for (i = 0; (i < Depth) && (i < 32'd4050); i = i + 1) begin
+      rom[i] = {RomWordWidth{1'b0}};
     end
     if (HexMode) begin
       $readmemh(InitFile, rom);
@@ -30,7 +32,7 @@ module sync_rom #(
   end
 
   always @(posedge clk) begin
-    data_out <= rom[address];
+    data_out <= rom[address][DataWidth-1:0];
   end
 
 endmodule

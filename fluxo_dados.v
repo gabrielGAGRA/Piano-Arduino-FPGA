@@ -624,8 +624,8 @@ module fluxo_dados #(
   always @* begin
     case (estado_vol_reg)
       3'd0:    s_velocity_final = s_vel_base;
-      3'd1:    s_velocity_final = (s_vel_base >> 1'b1) + (s_vel_base >> 2'd2);
-      3'd2:    s_velocity_final = (s_vel_base >> 1'b1);
+      3'd1:    s_velocity_final = (s_vel_base >> 1'b1) + (s_vel_base >> 2'd3);
+      3'd2:    s_velocity_final = (s_vel_base >> 2'd2) + (s_vel_base >> 2'd3);
       3'd3:    s_velocity_final = (s_vel_base >> 2'd2);
       3'd4:    s_velocity_final = 7'd0;
       default: s_velocity_final = s_vel_base;

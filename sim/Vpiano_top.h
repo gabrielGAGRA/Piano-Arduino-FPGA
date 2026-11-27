@@ -913,10 +913,11 @@ private:
       break;
     case 1:
       w_velocity_final_ =
-          ((s_vel_base >> 1) + (s_vel_base >> 2)) & 0x7FU;
+          ((s_vel_base >> 1) + (s_vel_base >> 3)) & 0x7FU;
       break;
     case 2:
-      w_velocity_final_ = (s_vel_base >> 1) & 0x7FU;
+      w_velocity_final_ =
+          ((s_vel_base >> 2) + (s_vel_base >> 3)) & 0x7FU;
       break;
     case 3:
       w_velocity_final_ = (s_vel_base >> 2) & 0x7FU;

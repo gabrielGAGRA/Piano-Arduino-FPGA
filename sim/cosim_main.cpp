@@ -880,8 +880,8 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     const char *label;
   };
   static const VolSpec kVolSteps[5] = {
-      {1U, 48U, 0x7FU, 0x78U, 0x12U, 0x0CU, " 75P"},
-      {2U, 32U, 0x7FU, 0x12U, 0x40U, 0x0CU, " 50P"},
+      {1U, 40U, 0x7FU, 0x78U, 0x12U, 0x0CU, " 75P"},
+      {2U, 24U, 0x7FU, 0x12U, 0x40U, 0x0CU, " 50P"},
       {3U, 16U, 0x7FU, 0x24U, 0x12U, 0x0CU, " 25P"},
       {4U, 0U, 0x7FU, 0x7FU, 0x40U, 0x0CU, "  0P"},
       {0U, 64U, 0x79U, 0x40U, 0x40U, 0x0CU, "100P"},
@@ -1010,7 +1010,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
 
   trigger_vol_combo(); // 75%
   trigger_vol_combo(); // 50%
-  run_demo_first_note_pcm(32U, demo_pk_50, demo_rms_50);
+  run_demo_first_note_pcm(24U, demo_pk_50, demo_rms_50);
   set_mode(0U);
   WaitUartAndAudioIdle(2);
   drain_tsf_voices();

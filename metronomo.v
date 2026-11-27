@@ -17,41 +17,35 @@ module metronomo #(
   output wire [2:0]  posicao_servo
 );
 
-  wire       w_fim_passo;
-  wire       w_fim_curso_min;
-  wire       w_fim_curso_max;
+  wire       w_fim_beat;
   wire       w_zera_tempo;
-  wire       w_incrementa_pos;
-  wire       w_decrementa_pos;
+  wire       w_set_pos_min;
+  wire       w_set_pos_max;
   wire       w_pos_repouso;
   wire [2:0] w_posicao_servo;
 
   metronomo_uc metronomo_uc_inst (
-    .clk           (clk),
-    .arst          (arst),
-    .habilita      (habilita),
-    .fim_passo     (w_fim_passo),
-    .fim_curso_min (w_fim_curso_min),
-    .fim_curso_max (w_fim_curso_max),
-    .zera_tempo    (w_zera_tempo),
-    .incrementa_pos(w_incrementa_pos),
-    .decrementa_pos(w_decrementa_pos),
-    .pos_repouso   (w_pos_repouso),
-    .pulso_beat    (pulso_beat)
+    .clk        (clk),
+    .arst       (arst),
+    .habilita   (habilita),
+    .fim_beat   (w_fim_beat),
+    .zera_tempo (w_zera_tempo),
+    .set_pos_min(w_set_pos_min),
+    .set_pos_max(w_set_pos_max),
+    .pos_repouso(w_pos_repouso),
+    .pulso_beat (pulso_beat)
   );
 
   metronomo_fd metronomo_fd_inst (
-    .clk           (clk),
-    .arst          (arst),
-    .t_passo       (t_passo),
-    .zera_tempo    (w_zera_tempo),
-    .incrementa_pos(w_incrementa_pos),
-    .decrementa_pos(w_decrementa_pos),
-    .pos_repouso   (w_pos_repouso),
-    .fim_passo     (w_fim_passo),
-    .fim_curso_min (w_fim_curso_min),
-    .fim_curso_max (w_fim_curso_max),
-    .posicao_servo (w_posicao_servo)
+    .clk          (clk),
+    .arst         (arst),
+    .t_passo      (t_passo),
+    .zera_tempo   (w_zera_tempo),
+    .set_pos_min  (w_set_pos_min),
+    .set_pos_max  (w_set_pos_max),
+    .pos_repouso  (w_pos_repouso),
+    .fim_beat     (w_fim_beat),
+    .posicao_servo(w_posicao_servo)
   );
 
   controle_servo_8 #(

@@ -1,6 +1,6 @@
 // Descricao: Testbench auto-verificavel para o subsistema metronomo.
-// Funcionamento: Verifica repouso inicial, varredura angular suave com
-// beats nos extremos e retorno ao centro apos desabilitacao.
+// Funcionamento: Verifica repouso inicial, saltos bruscos entre os extremos (0 e 7)
+// sem posicoes intermediarias e retorno ao centro apos desabilitacao.
 
 `timescale 1ns / 1ps
 `default_nettype none
@@ -24,6 +24,7 @@ module metronomo_tb;
   integer tests_run  = 0;
   integer beat_count = 0;
   reg     beat_err   = 1'b0;
+  reg     interm_err = 1'b0;
 
   initial clk = 1'b0;
   always #(ClkPeriodNs / 2) clk = ~clk;
@@ -50,12 +51,21 @@ module metronomo_tb;
     if (arst) begin
       beat_count <= 0;
       beat_err   <= 1'b0;
-    end else if (pulso_beat) begin
-      beat_count <= beat_count + 1;
-      if (posicao_servo !== 3'd0 && posicao_servo !== 3'd7) begin
-        $display("[FALHA] %0t ns | BEAT_EXTREMO: pulso fora de extremo! Posicao: %0d",
+      interm_err <= 1'b0;
+    end else begin
+      if (habilita && posicao_servo !== 3'd3 &&
+          posicao_servo !== 3'd0 && posicao_servo !== 3'd7) begin
+        $display("[FALHA] %0t ns | POS_INTERMEDIARIA: posicao %0d nao permitida!",
           $time, posicao_servo);
-        beat_err <= 1'b1;
+        interm_err <= 1'b1;
+      end
+      if (pulso_beat) begin
+        beat_count <= beat_count + 1;
+        if (posicao_servo !== 3'd0 && posicao_servo !== 3'd7) begin
+          $display("[FALHA] %0t ns | BEAT_EXTREMO: pulso fora de extremo! Posicao: %0d",
+            $time, posicao_servo);
+          beat_err <= 1'b1;
+        end
       end
     end
   end
@@ -136,6 +146,7 @@ module metronomo_tb;
         timeout_cnt = timeout_cnt + 1;
       end
       assert_true(beat_count >= 1, "TESTE_BEAT1_DIR");
+      expect_eq3(posicao_servo, 3'd7, "TESTE_POS_BEAT1_DIR");
 
       timeout_cnt = 0;
       while (beat_count < 2 && timeout_cnt < 300) begin
@@ -143,6 +154,7 @@ module metronomo_tb;
         timeout_cnt = timeout_cnt + 1;
       end
       assert_true(beat_count >= 2, "TESTE_BEAT2_ESQ");
+      expect_eq3(posicao_servo, 3'd0, "TESTE_POS_BEAT2_ESQ");
 
       timeout_cnt = 0;
       while (beat_count < 3 && timeout_cnt < 300) begin
@@ -150,7 +162,9 @@ module metronomo_tb;
         timeout_cnt = timeout_cnt + 1;
       end
       assert_true(beat_count >= 3, "TESTE_BEAT3_DIR");
+      expect_eq3(posicao_servo, 3'd7, "TESTE_POS_BEAT3_DIR");
       expect_true(!beat_err, "TESTE_BEAT_POSICAO_EXTREMO");
+      expect_true(!interm_err, "TESTE_SEM_POSICOES_INTERMEDIARIAS");
     end
   endtask
 

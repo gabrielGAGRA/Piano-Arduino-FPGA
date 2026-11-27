@@ -67,7 +67,7 @@ constexpr i2s_port_t kI2sPortNum = I2S_NUM_0;
 constexpr int kSampleRateHz = 48000;   // 48 kHz (razao exata 2:1 sobre SoundFont 24 kHz).
 constexpr int kAudioBlockFrames = 256; // ~5.33 ms por bloco @ 48 kHz (margem robusta contra jitter de Flash).
 constexpr int kMaxPolyphonyVoices = 7; // 7 vozes mono (7 notas simultaneas).
-constexpr float kGlobalGainDb = -6.0f; // -6 dB: nivel ideal para caixa de som ativa (1.05 V RMS) e previne clipping digital em polifonia.
+constexpr float kGlobalGainDb = 4.0f;  // +4 dB: compensa kVelRef=64 mantendo headroom contra clipping digital em picos.
 constexpr UBaseType_t kMidiQueueLength = 128;
 
 // Estruturas e Variaveis Globais
@@ -381,7 +381,7 @@ void setup()
 
   // Teste de boot: toca uma nota (Dó central - C4) e encerra para confirmar que o DAC e caixa estao ativos
   delay(100);
-  EnqueueMidiEvent(0x90, 60, 80); // Note On: Do4 (nota 60), vel 80
+  EnqueueMidiEvent(0x90, 60, 48); // Note On: Do4 (nota 60), vel 48
   delay(350);
   EnqueueMidiEvent(0x80, 60, 0);  // Note Off: Do4 (encerra nota de teste sem deixar vozes zumbis)
 }

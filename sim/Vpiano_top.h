@@ -905,7 +905,7 @@ private:
             : 0U;
 
     uint8_t s_vel_base =
-        s_is_demo ? ((w_velocity_rom_ == 0U) ? 100U : w_velocity_rom_) : 127U;
+        s_is_demo ? ((w_velocity_rom_ == 0U) ? 64U : w_velocity_rom_) : 64U;
     switch (r_estado_vol_)
     {
     case 0:
@@ -1558,7 +1558,7 @@ private:
           {
             next_cont_grav = 0U;
             next_nota_grav = w_nota_midi_usuario_;
-            next_vel_grav = 127U;
+            next_vel_grav = 64U;
             next_duracao_grav = 1U;
             next_pausa_grav = 0U;
           }

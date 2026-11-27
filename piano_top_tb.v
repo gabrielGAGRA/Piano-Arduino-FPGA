@@ -226,7 +226,7 @@ module piano_top_tb;
       @(negedge clk);
       gpio_keys <= 7'b0000001;
 
-      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LIVRE_NOTE_ON_C4");
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LIVRE_NOTE_ON_C4");
 
       @(negedge clk);
       gpio_keys <= 7'b0000000;
@@ -239,7 +239,7 @@ module piano_top_tb;
       @(negedge clk);
       gpio_keys <= 7'b0000010; // Tecla D4
 
-      receive_and_verify_midi_packet({8'h90, 8'd62, 8'd127}, "LIVRE_NOTE_ON_D4_SEM_FANTASMA");
+      receive_and_verify_midi_packet({8'h90, 8'd62, 8'd64}, "LIVRE_NOTE_ON_D4_SEM_FANTASMA");
 
       @(negedge clk);
       gpio_keys <= 7'b0000000;
@@ -277,7 +277,7 @@ module piano_top_tb;
       for (k = 0; k < 7; k = k + 1) begin
         @(negedge clk);
         gpio_keys <= (7'b0000001 << k);
-        receive_and_verify_midi_packet({8'h90, 1'b0, exp_nat[k], 8'd127}, "NAT_NOTE_ON");
+        receive_and_verify_midi_packet({8'h90, 1'b0, exp_nat[k], 8'd64}, "NAT_NOTE_ON");
 
         @(negedge clk);
         gpio_keys <= 7'b0000000;
@@ -293,7 +293,7 @@ module piano_top_tb;
       for (k = 0; k < 7; k = k + 1) begin
         @(negedge clk);
         gpio_keys <= (7'b0000001 << k);
-        receive_and_verify_midi_packet({8'h90, 1'b0, exp_sharp[k], 8'd127}, "SHARP_NOTE_ON");
+        receive_and_verify_midi_packet({8'h90, 1'b0, exp_sharp[k], 8'd64}, "SHARP_NOTE_ON");
 
         @(negedge clk);
         gpio_keys <= 7'b0000000;
@@ -309,7 +309,7 @@ module piano_top_tb;
       press_btn_oitava_up();
       @(negedge clk);
       gpio_keys <= 7'b0000001; // Do5 = 72
-      receive_and_verify_midi_packet({8'h90, 8'd72, 8'd127}, "OCT5_DO_NOTE_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd72, 8'd64}, "OCT5_DO_NOTE_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd72, 8'd0}, "OCT5_DO_NOTE_OFF");
@@ -320,7 +320,7 @@ module piano_top_tb;
       press_btn_oitava_down(); // Vai para 3
       @(negedge clk);
       gpio_keys <= 7'b0000001; // Do3 = 48
-      receive_and_verify_midi_packet({8'h90, 8'd48, 8'd127}, "OCT3_DO_NOTE_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd48, 8'd64}, "OCT3_DO_NOTE_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd48, 8'd0}, "OCT3_DO_NOTE_OFF");
@@ -355,9 +355,9 @@ module piano_top_tb;
       // Nota 1 (C4): ~2 ticks; Pausa: ~3 ticks; Nota 2 (E4): ~5 ticks
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "GRAV_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "GRAV_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "GRAV_N1_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "GRAV_N2_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "GRAV_N2_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "GRAV_N2_OFF");
         end
         begin
@@ -380,11 +380,11 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "DEMO_RAM_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "DEMO_RAM_N1_ON");
           t_on1 = $time;
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "DEMO_RAM_N1_OFF");
           t_off1 = $time;
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "DEMO_RAM_N2_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "DEMO_RAM_N2_ON");
           t_on2 = $time;
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "DEMO_RAM_N2_OFF");
           t_off2 = $time;
@@ -442,9 +442,9 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd48}, "CLAIR_DE_LUNE_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd53}, "CLAIR_DE_LUNE_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},  "CLAIR_DE_LUNE_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd79, 8'd61}, "CLAIR_DE_LUNE_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd79, 8'd67}, "CLAIR_DE_LUNE_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd79, 8'd0},  "CLAIR_DE_LUNE_N1_OFF");
         end
         begin
@@ -722,7 +722,7 @@ module piano_top_tb;
       // Pressiona Do na oitava 6 (MIDI 84 = 24'h90547F)
       @(negedge clk);
       gpio_keys <= 7'b0000001;
-      receive_and_verify_midi_packet({8'h90, 8'd84, 8'd127}, "HCSR04_OCT6_DO_NOTE_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd84, 8'd64}, "HCSR04_OCT6_DO_NOTE_ON");
 
       // Solta tecla Do (24'h805400)
       @(negedge clk);
@@ -790,13 +790,13 @@ module piano_top_tb;
         // Branch 1: Audio MIDI (saida_serial)
         begin
           // Nota errada (Re4 = 62)
-          receive_and_verify_midi_packet({8'h90, 8'd62, 8'd127}, "M1_WRONG_NOTE_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd62, 8'd64}, "M1_WRONG_NOTE_ON");
           receive_and_verify_midi_packet({8'h80, 8'd62, 8'd0},   "M1_WRONG_NOTE_OFF");
 
           // 7 notas corretas da escala Do_Re_Mi_Fa (Do4..Si4)
           for (note_idx = 0; note_idx < 7; note_idx = note_idx + 1) begin
             receive_and_verify_midi_packet(
-              {8'h90, 1'b0, exp_notes[note_idx], 8'd127}, "M1_SCALE_NOTE_ON");
+              {8'h90, 1'b0, exp_notes[note_idx], 8'd64}, "M1_SCALE_NOTE_ON");
             receive_and_verify_midi_packet(
               {8'h80, 1'b0, exp_notes[note_idx], 8'd0},   "M1_SCALE_NOTE_OFF");
           end
@@ -860,7 +860,7 @@ module piano_top_tb;
         begin
           for (note_idx = 0; note_idx < 7; note_idx = note_idx + 1) begin
             receive_and_verify_midi_packet(
-              {8'h90, 1'b0, exp_notes[note_idx], 8'd127}, "M1_PERFECT_ON");
+              {8'h90, 1'b0, exp_notes[note_idx], 8'd64}, "M1_PERFECT_ON");
             receive_and_verify_midi_packet(
               {8'h80, 1'b0, exp_notes[note_idx], 8'd0},   "M1_PERFECT_OFF");
           end
@@ -916,7 +916,7 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "SEMANA4_GRAV_NOTE_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "SEMANA4_GRAV_NOTE_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "SEMANA4_GRAV_NOTE_OFF");
         end
         begin
@@ -943,7 +943,7 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "SEMANA4_DEMO_NOTE_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "SEMANA4_DEMO_NOTE_ON");
           t_on = $time;
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "SEMANA4_DEMO_NOTE_OFF");
           t_off = $time;
@@ -991,11 +991,11 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M2_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LEGATO_M2_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M2_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "LEGATO_M2_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "LEGATO_M2_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "LEGATO_M2_N1_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M2_N2_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LEGATO_M2_N2_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M2_N2_OFF");
         end
         begin
@@ -1024,11 +1024,11 @@ module piano_top_tb;
       press_btn_modo();
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LEGATO_M3_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M3_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "LEGATO_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "LEGATO_M3_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "LEGATO_M3_N1_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LEGATO_M3_N2_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LEGATO_M3_N2_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LEGATO_M3_N2_OFF");
         end
         begin
@@ -1055,11 +1055,11 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "PERSIST_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "PERSIST_M3_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "PERSIST_M3_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "PERSIST_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "PERSIST_M3_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "PERSIST_M3_N1_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "PERSIST_M3_N2_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "PERSIST_M3_N2_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "PERSIST_M3_N2_OFF");
         end
         begin
@@ -1079,9 +1079,9 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "OVERWRITE_M2_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "OVERWRITE_M2_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "OVERWRITE_M2_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "OVERWRITE_M2_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "OVERWRITE_M2_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "OVERWRITE_M2_N1_OFF");
         end
         begin
@@ -1109,9 +1109,9 @@ module piano_top_tb;
       press_btn_modo();
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "OVERWRITE_M3_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "OVERWRITE_M3_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "OVERWRITE_M3_N0_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd127}, "OVERWRITE_M3_N1_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd64, 8'd64}, "OVERWRITE_M3_N1_ON");
           receive_and_verify_midi_packet({8'h80, 8'd64, 8'd0},   "OVERWRITE_M3_N1_OFF");
         end
         begin
@@ -1163,7 +1163,7 @@ module piano_top_tb;
       // 1. Testa 5 niveis no Modo 0 (100%, 75%, 50%, 25%, 0% mudo) e retorno a 100%
       @(negedge clk);
       gpio_keys <= 7'b0000001;
-      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "VOL_100_M0_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "VOL_100_M0_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_100_M0_OFF");
@@ -1173,7 +1173,7 @@ module piano_top_tb;
       check_vol_hex(7'h7F, 7'h78, 7'h12, 7'h0C, "VOL_HEX_75P");
       @(negedge clk);
       gpio_keys <= 7'b0000001;
-      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd94}, "VOL_75_M0_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd48}, "VOL_75_M0_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_75_M0_OFF");
@@ -1183,7 +1183,7 @@ module piano_top_tb;
       check_vol_hex(7'h7F, 7'h12, 7'h40, 7'h0C, "VOL_HEX_50P");
       @(negedge clk);
       gpio_keys <= 7'b0000001;
-      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd63}, "VOL_50_M0_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd32}, "VOL_50_M0_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_50_M0_OFF");
@@ -1193,7 +1193,7 @@ module piano_top_tb;
       check_vol_hex(7'h7F, 7'h24, 7'h12, 7'h0C, "VOL_HEX_25P");
       @(negedge clk);
       gpio_keys <= 7'b0000001;
-      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd31}, "VOL_25_M0_ON");
+      receive_and_verify_midi_packet({8'h90, 8'd60, 8'd16}, "VOL_25_M0_ON");
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0}, "VOL_25_M0_OFF");
@@ -1234,7 +1234,7 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "VOL_DEMO_REC_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "VOL_DEMO_REC_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "VOL_DEMO_REC_OFF");
         end
         begin
@@ -1254,7 +1254,7 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd31}, "VOL_DEMO_25_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd16}, "VOL_DEMO_25_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},  "VOL_DEMO_25_OFF");
         end
         begin
@@ -1300,7 +1300,7 @@ module piano_top_tb;
       // 1. Grava Do4 (60) no endereco 0 para validar nao-sobrescrita
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd127}, "LIM_N0_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd60, 8'd64}, "LIM_N0_ON");
           receive_and_verify_midi_packet({8'h80, 8'd60, 8'd0},   "LIM_N0_OFF");
         end
         begin
@@ -1332,7 +1332,7 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_1022_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd64}, "LIM_1022_ON");
           receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_1022_OFF");
         end
         begin
@@ -1361,7 +1361,7 @@ module piano_top_tb;
       // 3. Tenta pressionar La4 (69) em 1023: nao deve gravar, dar wrap ou corromper RAM
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd127}, "LIM_FULL_LA4_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd64}, "LIM_FULL_LA4_ON");
           receive_and_verify_midi_packet({8'h80, 8'd69, 8'd0},   "LIM_FULL_LA4_OFF");
         end
         begin
@@ -1397,9 +1397,9 @@ module piano_top_tb;
 
       fork
         begin
-          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_TROCA_SOL4_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd64}, "LIM_TROCA_SOL4_ON");
           receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_TROCA_SOL4_OFF");
-          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd127}, "LIM_TROCA_LA4_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd69, 8'd64}, "LIM_TROCA_LA4_ON");
           receive_and_verify_midi_packet({8'h80, 8'd69, 8'd0},   "LIM_TROCA_LA4_OFF");
         end
         begin
@@ -1437,7 +1437,7 @@ module piano_top_tb;
           wait (piano_top_inst.unidade_controle_inst.state_reg == 5'd13);
           @(negedge clk);
           piano_top_inst.fluxo_dados_inst.contador_m_addr.q = 10'd1022;
-          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd127}, "LIM_DEMO_1022_ON");
+          receive_and_verify_midi_packet({8'h90, 8'd67, 8'd64}, "LIM_DEMO_1022_ON");
           receive_and_verify_midi_packet({8'h80, 8'd67, 8'd0},   "LIM_DEMO_1022_OFF");
         end
         begin

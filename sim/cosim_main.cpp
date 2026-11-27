@@ -680,7 +680,7 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   if (g_ctx.midi_log.size() >= 2U)
   {
     check(g_ctx.midi_log[0].status == 0x90U && g_ctx.midi_log[0].data1 == 60U &&
-              g_ctx.midi_log[0].data2 == 80U,
+              g_ctx.midi_log[0].data2 == 48U,
           "ESP32_BOOT_ON", "Evento Note On de boot incorreto");
     check(g_ctx.midi_log[1].status == 0x80U && g_ctx.midi_log[1].data1 == 60U,
           "ESP32_BOOT_OFF", "Evento Note Off de boot incorreto");
@@ -856,13 +856,13 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
   int32_t livre_peaks[5] = {0, 0, 0, 0, 0};
   double livre_rms[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-  // Mede baseline 100% no Modo Livre (Re4 = 62, vel = 127)
+  // Mede baseline 100% no Modo Livre (Re4 = 62, vel = 64 = kVelRef)
   fpga->gpio_keys = 0x02U;
   StepCycles(fpga->param_debounce_tecla + 10U);
   WaitUartAndAudioIdle(2);
   check(g_ctx.last_midi_status == 0x90U && g_ctx.last_midi_data1 == 62U &&
-            g_ctx.last_midi_data2 == 127U,
-        "VOL_LIVRE_VEL_127", "Velocity inicial 100% nao foi 127");
+            g_ctx.last_midi_data2 == 64U,
+        "VOL_LIVRE_VEL_64", "Velocity inicial 100% nao foi 64");
   measure_pcm_over_blocks(8, livre_peaks[0], livre_rms[0]);
   fpga->gpio_keys = 0x00U;
   StepCycles(fpga->param_debounce_tecla + 10U);
@@ -880,11 +880,11 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     const char *label;
   };
   static const VolSpec kVolSteps[5] = {
-      {1U, 94U, 0x7FU, 0x78U, 0x12U, 0x0CU, " 75P"},
-      {2U, 63U, 0x7FU, 0x12U, 0x40U, 0x0CU, " 50P"},
-      {3U, 31U, 0x7FU, 0x24U, 0x12U, 0x0CU, " 25P"},
+      {1U, 48U, 0x7FU, 0x78U, 0x12U, 0x0CU, " 75P"},
+      {2U, 32U, 0x7FU, 0x12U, 0x40U, 0x0CU, " 50P"},
+      {3U, 16U, 0x7FU, 0x24U, 0x12U, 0x0CU, " 25P"},
       {4U, 0U, 0x7FU, 0x7FU, 0x40U, 0x0CU, "  0P"},
-      {0U, 127U, 0x79U, 0x40U, 0x40U, 0x0CU, "100P"},
+      {0U, 64U, 0x79U, 0x40U, 0x40U, 0x0CU, "100P"},
   };
 
   int32_t peak_100_restored = 0;
@@ -967,7 +967,19 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
         "VOL_COMBO_TIMER_EXPIRE",
         "Displays HEX5..2 nao retornaram ao normal apos 1s de mostra_vol");
 
-  // Testa escala quadratica no Modo Demo (Musica 6: vel_rom=100, dur=40) e mute mid-note
+  // Testa escala quadratica no Modo Demo (Musica 6: vel_rom=64, dur=40) e paridade com Modo Livre
+  drain_tsf_voices();
+  int32_t livre_c4_pk = 0;
+  double livre_c4_rms = 0.0;
+  fpga->gpio_keys = 0x01U;
+  StepCycles(fpga->param_debounce_tecla + 10U);
+  WaitUartAndAudioIdle(2);
+  measure_pcm_over_blocks(6, livre_c4_pk, livre_c4_rms);
+  fpga->gpio_keys = 0x00U;
+  StepCycles(fpga->param_debounce_tecla + 10U);
+  WaitUartAndAudioIdle(2);
+  drain_tsf_voices();
+
   select_song(6U);
   auto run_demo_first_note_pcm = [&](uint8_t exp_vel, int32_t &out_pk, double &out_rms) {
     set_mode(3U);
@@ -987,20 +999,24 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
 
   int32_t demo_pk_100 = 0, demo_pk_50 = 0, demo_pk_25 = 0;
   double demo_rms_100 = 0.0, demo_rms_50 = 0.0, demo_rms_25 = 0.0;
-  run_demo_first_note_pcm(100U, demo_pk_100, demo_rms_100);
+  run_demo_first_note_pcm(64U, demo_pk_100, demo_rms_100);
+  check(livre_c4_rms > 0.0 &&
+            fabs(demo_rms_100 - livre_c4_rms) <= 0.10 * livre_c4_rms,
+        "VOL_LIVRE_DEMO_PARITY",
+        "RMS PCM do Modo Demo divergiu do Modo Livre em 100%");
   set_mode(0U);
   WaitUartAndAudioIdle(2);
   drain_tsf_voices();
 
   trigger_vol_combo(); // 75%
   trigger_vol_combo(); // 50%
-  run_demo_first_note_pcm(50U, demo_pk_50, demo_rms_50);
+  run_demo_first_note_pcm(32U, demo_pk_50, demo_rms_50);
   set_mode(0U);
   WaitUartAndAudioIdle(2);
   drain_tsf_voices();
 
   trigger_vol_combo(); // 25%
-  run_demo_first_note_pcm(25U, demo_pk_25, demo_rms_25);
+  run_demo_first_note_pcm(16U, demo_pk_25, demo_rms_25);
 
   check(demo_pk_100 > demo_pk_50 && demo_pk_50 > demo_pk_25 && demo_pk_25 > 0,
         "VOL_DEMO_PEAK_SCALING",
@@ -1160,12 +1176,12 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     decode_ram_word(fpga->debug_read_ram(0U), n0, v0, d0, p0);
     decode_ram_word(fpga->debug_read_ram(1U), n1, v1, d1, p1);
     decode_ram_word(fpga->debug_read_ram(2U), n2, v2, d2, p2);
-    check(n0 == 60U && v0 == 127U && d0 == 4U && p0 == 5U, "GRAV_WORD0_TIMING",
-          "Palavra 0 RAM divergiu (esperado C4, vel=127, dur=4, pausa=5)");
-    check(n1 == 64U && v1 == 127U && d1 == 8U && p1 == 2U, "GRAV_WORD1_TIMING",
-          "Palavra 1 RAM divergiu (esperado E4, vel=127, dur=8, pausa=2)");
-    check(n2 == 67U && v2 == 127U && d2 == 3U && p2 == 0U, "GRAV_WORD2_TIMING",
-          "Palavra 2 RAM divergiu (esperado G4, vel=127, dur=3, pausa=0)");
+    check(n0 == 60U && v0 == 64U && d0 == 4U && p0 == 5U, "GRAV_WORD0_TIMING",
+          "Palavra 0 RAM divergiu (esperado C4, vel=64, dur=4, pausa=5)");
+    check(n1 == 64U && v1 == 64U && d1 == 8U && p1 == 2U, "GRAV_WORD1_TIMING",
+          "Palavra 1 RAM divergiu (esperado E4, vel=64, dur=8, pausa=2)");
+    check(n2 == 67U && v2 == 64U && d2 == 3U && p2 == 0U, "GRAV_WORD2_TIMING",
+          "Palavra 2 RAM divergiu (esperado G4, vel=64, dur=3, pausa=0)");
   }
 
   // Reproduz no Modo 3 (Demo slot 42) e mede duracoes e pausas reais em ciclos MIDI
@@ -1298,9 +1314,9 @@ static int RunAutomatedSuite(bool full_50mhz, const char *wav_out_path,
     {
       uint8_t n, v, d, p;
       decode_ram_word(fpga->debug_read_ram(static_cast<uint16_t>(idx)), n, v, d, p);
-      check(n == kExpLegato[idx] && v == 127U && d == 3U && p == 0U,
+      check(n == kExpLegato[idx] && v == 64U && d == 3U && p == 0U,
             "GRAV_LEGATO_RAM_WORD",
-            "Nota legato gravada na RAM divergiu de (nota, vel=127, dur=3, pausa=0)");
+            "Nota legato gravada na RAM divergiu de (nota, vel=64, dur=3, pausa=0)");
     }
   }
 

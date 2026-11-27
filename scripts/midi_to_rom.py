@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 TICK_SECONDS = 0.008
 ROM_DEPTH = 1024
 MAX_NOTES = ROM_DEPTH - 1  # Reserva pelo menos o último endereço com 30'd0 (fim_musica)
+TARGET_RMS_VELOCITY = 64.0
 
 OVERLAP_EPS_S = 0.004       # Tolerância de 4 ms (< 1 tick) para bordas encostadas
 SILENCE_SWITCH_S = 1.0      # Mínimo de silêncio (s) para trocar para canal mais grave
@@ -277,6 +278,33 @@ def optimize_transposition_for_7_keys(melody: List[Dict]) -> List[Dict]:
         optimized_melody.append(n_copy)
 
     return optimized_melody
+
+
+def normalize_velocities(
+    melody: List[Dict],
+    target_rms: float = TARGET_RMS_VELOCITY,
+) -> List[Dict]:
+    """
+    Normaliza as velocities da melodia pela média quadrática (RMS, compatível com a
+    curva quadrática do ESP32) para `target_rms`, limitando o fator de escala para
+    que o pico máximo não ultrapasse 127 (preserva 100% da dinâmica relativa).
+    """
+    if not melody:
+        return melody
+
+    vels = [max(1, min(127, int(n["vel"]))) for n in melody]
+    rms = (sum(v * v for v in vels) / len(vels)) ** 0.5
+    max_v = max(vels)
+    if rms <= 0.0 or max_v <= 0:
+        return melody
+
+    scale = min(target_rms / rms, 127.0 / max_v)
+    normalized: List[Dict] = []
+    for n, v in zip(melody, vels):
+        n_copy = dict(n)
+        n_copy["vel"] = max(1, min(127, int(round(v * scale))))
+        normalized.append(n_copy)
+    return normalized
 
 
 def encode_rom_word(pausa_ticks: int, dur_ticks: int, velocity: int, note_midi: int) -> str:
@@ -567,6 +595,9 @@ def convert_midi_simple(
 
     if transpose and melody:
         melody = optimize_transposition_for_7_keys(melody)
+
+    if melody:
+        melody = normalize_velocities(melody)
 
     lines: List[str] = []
     for i, n in enumerate(melody):

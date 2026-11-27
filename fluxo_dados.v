@@ -385,6 +385,7 @@ module fluxo_dados #(
     .data_out(d_rom_partituras)
   );
 
+  localparam [6:0] VelRef = 7'd64;
   // Temporizador de Gravacao (Modo 2)
   wire [6:0] s_nota_midi_usuario;
   wire       s_tem_nota_usuario = s_tem_nota && (s_nota_tocada != 3'd0) &&
@@ -433,7 +434,7 @@ module fluxo_dados #(
           if (!r_tem_nota_grav_prev_reg || s_troca_nota_grav) begin
             cont_grav_ciclos_reg <= 32'd0;
             nota_grav_reg        <= s_nota_midi_usuario;
-            vel_grav_reg         <= 7'd127;
+            vel_grav_reg         <= VelRef;
             duracao_grav_reg     <= 8'd1;
             pausa_grav_reg       <= 8'd0;
           end else if (cont_grav_ciclos_reg >= (CiclosTick8ms - 1)) begin
@@ -582,7 +583,7 @@ module fluxo_dados #(
     ((s_nota_esperada != 3'd0) && r_nota_ativa_bpm_reg) : s_tem_nota_usuario;
 
   wire [6:0] s_vel_base = s_is_demo ?
-    ((s_velocity_rom == 7'd0) ? 7'd100 : s_velocity_rom) : 7'd127;
+    ((s_velocity_rom == 7'd0) ? VelRef : s_velocity_rom) : VelRef;
 
   always @* begin
     case (estado_vol_reg)

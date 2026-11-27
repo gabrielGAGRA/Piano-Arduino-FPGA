@@ -719,16 +719,50 @@ module piano_top_tb;
         errors = errors + 1;
       end
 
-      // Pressiona Do na oitava 6 (MIDI 84 = 24'h90547F)
+      // Pressiona Do na oitava 6 (MIDI 84 = 24'h905440)
       @(negedge clk);
       gpio_keys <= 7'b0000001;
       receive_and_verify_midi_packet({8'h90, 8'd84, 8'd64}, "HCSR04_OCT6_DO_NOTE_ON");
 
-      // Solta tecla Do (24'h805400)
+      // Verifica que o trigger nao dispara imediatamente apos o fim do echo (cooldown)
+      repeat (200) begin
+        @(posedge clk);
+        if (hcsr04_trigger === 1'b1) begin
+          $display("[FALHA] %0t ns | HCSR04_COOLDOWN: trigger disparou sem intervalo minimo",
+            $time);
+          errors = errors + 1;
+        end
+      end
+
+      // Aguarda proximo trigger apos cooldown e simula nova distancia (35 cm -> oitava 4)
+      // com a tecla ainda pressionada; a oitava deve permanecer travada em 6 ate soltar.
+      wait (hcsr04_trigger === 1'b1);
+      @(negedge hcsr04_trigger);
+      repeat (5) @(posedge clk);
+      @(negedge clk);
+      hcsr04_echo <= 1'b1;
+      repeat (35 * 2941) @(posedge clk);
+      @(negedge clk);
+      hcsr04_echo <= 1'b0;
+      repeat (10) @(posedge clk);
+
+      if (piano_top_inst.fluxo_dados_inst.oitava_atual !== 3'd6) begin
+        $display("[FALHA] %0t ns | HCSR04_TRAVA_OITAVA: esperado 6, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.oitava_atual);
+        errors = errors + 1;
+      end
+
+      // Solta tecla Do (24'h805400) e verifica que a oitava atualiza para 4
       @(negedge clk);
       gpio_keys <= 7'b0000000;
       receive_and_verify_midi_packet({8'h80, 8'd84, 8'd0}, "HCSR04_OCT6_DO_NOTE_OFF");
       repeat (10) @(posedge clk);
+
+      if (piano_top_inst.fluxo_dados_inst.oitava_atual !== 3'd4) begin
+        $display("[FALHA] %0t ns | HCSR04_DESTRAVA_OITAVA: esperado 4, obtido %0d",
+          $time, piano_top_inst.fluxo_dados_inst.oitava_atual);
+        errors = errors + 1;
+      end
 
       // Repete o combo de botoes para desativar o modo sensor (retorna oitava 4)
       @(negedge clk);

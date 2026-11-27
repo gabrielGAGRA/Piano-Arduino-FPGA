@@ -266,7 +266,7 @@ module fluxo_dados #(
   always @(posedge clk or posedge arst) begin
     if (arst) begin
       s_oitava_sensor_reg <= 3'd4;
-    end else if (s_sensor_pronto) begin
+    end else if (s_sensor_pronto && (s_distancia != 12'h999)) begin
       if (s_distancia_cm <= 10'd10) begin
         s_oitava_sensor_reg <= 3'd7;
       end else if (s_distancia_cm <= 10'd20) begin
@@ -293,10 +293,34 @@ module fluxo_dados #(
     .oitava_atual  (s_oitava_livre)
   );
 
+  localparam [31:0] CiclosEsperaHcsr04Full = 8 * CiclosTick8ms;
+  localparam [23:0] CiclosEsperaHcsr04     = CiclosEsperaHcsr04Full[23:0];
+
+  reg        r_hcsr04_medir_reg;
+  reg [23:0] r_hcsr04_espera_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      r_hcsr04_medir_reg  <= 1'b0;
+      r_hcsr04_espera_reg <= 24'd0;
+    end else if (!s_modo_oitava_sensor_reg) begin
+      r_hcsr04_medir_reg  <= 1'b0;
+      r_hcsr04_espera_reg <= 24'd0;
+    end else if (s_sensor_pronto) begin
+      r_hcsr04_medir_reg  <= 1'b0;
+      r_hcsr04_espera_reg <= CiclosEsperaHcsr04;
+    end else if (r_hcsr04_espera_reg != 24'd0) begin
+      r_hcsr04_medir_reg  <= 1'b0;
+      r_hcsr04_espera_reg <= r_hcsr04_espera_reg - 24'd1;
+    end else begin
+      r_hcsr04_medir_reg  <= 1'b1;
+    end
+  end
+
   interface_hcsr04 interface_hcsr04_oitava (
     .clk      (clk),
     .arst     (arst),
-    .medir    (s_modo_oitava_sensor_reg),
+    .medir    (r_hcsr04_medir_reg),
     .echo     (hcsr04_echo),
     .trigger  (hcsr04_trigger),
     .medida   (s_distancia),
@@ -546,8 +570,20 @@ module fluxo_dados #(
   end
 
   wire s_ativo_apre_demo = (modo_ativo == 2'd1) || (modo_ativo == 2'd3);
-  wire [2:0] s_oitava_selecionada = s_modo_oitava_sensor_reg ?
+  wire [2:0] s_oitava_selecionada_raw = s_modo_oitava_sensor_reg ?
     s_oitava_sensor_reg : s_oitava_livre;
+  reg [2:0] r_oitava_travada_reg;
+
+  always @(posedge clk or posedge arst) begin
+    if (arst) begin
+      r_oitava_travada_reg <= 3'd4;
+    end else if (!s_tem_nota) begin
+      r_oitava_travada_reg <= s_oitava_selecionada_raw;
+    end
+  end
+
+  wire [2:0] s_oitava_selecionada = s_tem_nota ?
+    r_oitava_travada_reg : s_oitava_selecionada_raw;
   wire [2:0] s_oitava_atual_uso = (modo_ativo == 2'd3) ?
     ((s_nota_esperada != 3'd0) ? s_oitava_esperada : s_oitava_selecionada) :
     ((modo_ativo == 2'd1) ? r_oitava_apre_reg : s_oitava_selecionada);
